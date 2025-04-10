@@ -40,6 +40,9 @@ def limpar_terminal():
 
 
 if __name__ == "__main__":
+    if TIPO_LOG == "DESENVOLVEDOR":
+        print("🔌 Conectando à Twitch API...")
+
     twitch = TwitchAPI()
     user_info = twitch.get_user_info(STREAMER)
 
@@ -48,6 +51,11 @@ if __name__ == "__main__":
         exit()
 
     user_id = user_info["id"]
+
+    if TIPO_LOG == "DESENVOLVEDOR":
+        print(f"✅ Conectado! Monitorando @{user_info['display_name']}")
+        print("📂 Carregando estado do bot...")
+
     estado = carregar_estado()
 
     estado.setdefault("ultima_execucao", None)
@@ -57,7 +65,6 @@ if __name__ == "__main__":
     estado.setdefault("descricao", 0)
     estado.setdefault("grupos_enviados", [])
 
-    # Calcular o período inicial a monitorar
     ultima_execucao = estado["ultima_execucao"]
     tempo_offline = 600
     if ultima_execucao:
@@ -80,37 +87,55 @@ if __name__ == "__main__":
 
             # Mensagens automáticas
             if agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
+                if TIPO_LOG == "DESENVOLVEDOR":
+                    print("💬 Enviando mensagem promocional...")
                 enviar_mensagem_promocional()
                 estado["ultimo_envio_promocional"] = agora
 
             if agora - estado["ultimo_envio_header"] >= INTERVALO_MENSAGEM_HEADER:
+                if TIPO_LOG == "DESENVOLVEDOR":
+                    print("📢 Enviando banner de streamers...")
                 enviar_header_streamers([STREAMER])
                 estado["ultimo_envio_header"] = agora
 
             if agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
+                if TIPO_LOG == "DESENVOLVEDOR":
+                    print("🔄 Enviando mensagem de atualização de streamers...")
                 enviar_mensagem_atualizacao_streamers()
                 estado["ultimo_envio_atualizacao_streamers"] = agora
 
             if ATUALIZAR_DESCRICAO and agora - estado["descricao"] >= INTERVALO_ATUALIZAR_DESCRICAO:
+                if TIPO_LOG == "DESENVOLVEDOR":
+                    print("📝 Atualizando descrição do canal...")
                 stream_status = twitch.get_stream_status(user_id)
                 stream = twitch.get_stream_info(user_id)
                 viewers = stream["viewer_count"] if stream else 0
                 minimo_clipes = minimo_clipes_por_viewers(viewers)
 
-                atualizar_descricao_telegram(
-                    user_info["display_name"], stream_status, viewers,
-                    minimo_clipes, INTERVALO_SEGUNDOS
-                )
+                try:
+                    atualizar_descricao_telegram(
+                        user_info["display_name"], stream_status, viewers,
+                        minimo_clipes, INTERVALO_SEGUNDOS
+                    )
+                except Exception as e:
+                    print(f"⚠️ Erro ao atualizar descrição: {e}")
+
                 estado["descricao"] = agora
 
-            # Monitoramento de clipes
+            # Monitoramento
+            if TIPO_LOG == "DESENVOLVEDOR":
+                print("🎥 Buscando clipes recentes...")
+
             clipes = twitch.get_recent_clips(user_id, started_at)
             clipes_novos = [c for c in clipes if all(
                 not (grupo["inicio"] <= c["created_at"] <= grupo["fim"])
                 for grupo in estado["grupos_enviados"]
             )]
-            grupos = agrupar_clipes_por_proximidade(clipes_novos, intervalo_segundos=INTERVALO_SEGUNDOS)
 
+            if TIPO_LOG == "DESENVOLVEDOR":
+                print(f"🔎 {len(clipes_novos)} clipe(s) novo(s) após filtro de repetidos.")
+
+            grupos = agrupar_clipes_por_proximidade(clipes_novos, intervalo_segundos=INTERVALO_SEGUNDOS)
             stream = twitch.get_stream_info(user_id)
             viewers = stream["viewer_count"] if stream else 0
             minimo_clipes = minimo_clipes_por_viewers(viewers)
@@ -125,7 +150,7 @@ if __name__ == "__main__":
                 print("-" * 50)
                 print(f"🎥 {len(clipes)} clipe(s) encontrados nos últimos 5 minutos.")
             elif TIPO_LOG == "DESENVOLVEDOR":
-                print(f"\n📦 Processando {len(clipes_novos)} clipe(s) novos...")
+                print(f"\n🧠 Grupos virais detectados: {len(virais)}")
 
             for grupo in virais:
                 inicio = grupo["inicio"]
@@ -158,6 +183,8 @@ if __name__ == "__main__":
                     download_url = clipe_url
 
                 if ENVIAR_CLIPES:
+                    if TIPO_LOG == "DESENVOLVEDOR":
+                        print(f"📤 Enviando clipe: {slug}")
                     enviar_mensagem(mensagem, botao_url=download_url, botao_texto="📥 BAIXAR CLIPE")
 
                 estado["grupos_enviados"].append({
@@ -179,6 +206,8 @@ if __name__ == "__main__":
 
             estado["ultima_execucao"] = datetime.now(timezone.utc).isoformat()
             salvar_estado(estado)
+            if TIPO_LOG == "DESENVOLVEDOR":
+                print("💾 Estado salvo com sucesso.\n")
             time.sleep(INTERVALO_MONITORAMENTO)
 
     except KeyboardInterrupt:

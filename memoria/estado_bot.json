@@ -1,9 +1,9 @@
 {
-  "ultima_execucao": "2025-04-10T20:19:22.835440+00:00",
+  "ultima_execucao": "2025-04-10T20:35:29.858684+00:00",
   "enviados": [],
-  "ultimo_envio_promocional": 1744316127.1601403,
-  "ultimo_envio_header": 1744313311.7044873,
-  "ultimo_envio_atualizacao_streamers": 1744313311.7044873,
+  "ultimo_envio_promocional": 1744316756.6559505,
+  "ultimo_envio_header": 1744316978.6091387,
+  "ultimo_envio_atualizacao_streamers": 1744316978.6091387,
   "clipes_enviados": [
     "BlindingChillyJalapenoOpieOP-wY1r6zK3Jjx2Z6Uf",
     "MiniatureAcceptableSproutDxCat-xtNZ0UKa6B2SWXp9",
@@ -26,7 +26,7 @@
     "DifficultSmellyRutabagaYouWHY-uE3k9qGdmcbBSXUz",
     "AbstruseTacitLapwingJonCarnage-fHjEFxJNQBKdtWX5"
   ],
-  "descricao": 1744316127.1601403,
+  "descricao": 1744317200.6524787,
   "grupos_enviados": [
     {
       "inicio": "2025-04-10T19:42:52+00:00",
@@ -71,6 +71,26 @@
     {
       "inicio": "2025-04-10T20:18:14+00:00",
       "fim": "2025-04-10T20:19:14+00:00"
+    },
+    {
+      "inicio": "2025-04-10T20:25:26+00:00",
+      "fim": "2025-04-10T20:26:26+00:00"
+    },
+    {
+      "inicio": "2025-04-10T20:21:53+00:00",
+      "fim": "2025-04-10T20:22:53+00:00"
+    },
+    {
+      "inicio": "2025-04-10T20:28:46+00:00",
+      "fim": "2025-04-10T20:29:46+00:00"
+    },
+    {
+      "inicio": "2025-04-10T20:32:50+00:00",
+      "fim": "2025-04-10T20:33:50+00:00"
+    },
+    {
+      "inicio": "2025-04-10T20:35:14+00:00",
+      "fim": "2025-04-10T20:36:14+00:00"
     }
   ]
 }

@@ -28,10 +28,7 @@ def atualizar_descricao_telegram(streamer_nome, status, viewers, minimo_clipes, 
         f"👀 @{streamer_nome} - {status_emoji}\n"
         f"👥 {viewers} espectadores agora\n"
         f"🔥 Grupo de {minimo_clipes} clipes em {intervalo}s"
-    )
-
-    # Remove emojis problemáticos e limita com segurança
-    descricao = remover_caracteres_invalidos(descricao)[:255]
+    )[:255]
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setChatDescription"
     data = {
@@ -42,24 +39,8 @@ def atualizar_descricao_telegram(streamer_nome, status, viewers, minimo_clipes, 
     try:
         r = requests.post(url, json=data)
         r.raise_for_status()
-    except requests.exceptions.HTTPError as e:
-        print(f"❌ Erro ao atualizar descrição do canal: {e}\nConteúdo: {descricao}")
-
-def remover_caracteres_invalidos(texto):
-    # Remove emojis e símbolos que não são aceitos na descrição
-    emoji_pattern = re.compile(
-        "["
-        "\U0001F600-\U0001F64F"  # Emoticons
-        "\U0001F300-\U0001F5FF"  # Símbolos e pictogramas
-        "\U0001F680-\U0001F6FF"  # Transporte e mapas
-        "\U0001F1E0-\U0001F1FF"  # Bandeiras
-        "\U00002700-\U000027BF"  # Dingbats
-        "\U0001F900-\U0001F9FF"  # Suplemento de emojis
-        "\U0001FA70-\U0001FAFF"  # Suplemento de símbolos adicionais
-        "]+", flags=re.UNICODE
-    )
-    return emoji_pattern.sub("", texto).strip()
-
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Erro ao atualizar descrição do canal: {e}")
 
 # 🔹 Mensagem promocional para quem quiser contratar o Clipador
 def enviar_mensagem_promocional(chat_id=TELEGRAM_CHAT_ID):

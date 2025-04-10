@@ -32,4 +32,4 @@ if __name__ == "__main__":
 try:
     subprocess.run([sys.executable, "-m", "canal_gratuito.main"])
 except KeyboardInterrupt:
-    print("🛑 Clipador encerrado.")
+    print("\n🛑 Clipador encerrado.")
