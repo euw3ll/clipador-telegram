@@ -1,4 +1,30 @@
 from datetime import datetime, timedelta, timezone
+from configuracoes import MODO_MONITORAMENTO
+
+MODOS_MONITORAMENTO = {
+    "MODO_LOUCO": {
+        "min_clipes": [1, 2, 3],
+        "intervalo_segundos": 150,
+        "frequencia_monitoramento": 15,
+    },
+    "MODO_PADRAO": {
+        "min_clipes": [2, 3, 4, 5],
+        "intervalo_segundos": 90,
+        "frequencia_monitoramento": 30,
+    },
+    "MODO_CIRURGICO": {
+        "min_clipes": [3, 4, 5, 6],
+        "intervalo_segundos": 45,
+        "frequencia_monitoramento": 60,
+    },
+}
+
+# 🔧 Extraído do modo ativo
+config_modo = MODOS_MONITORAMENTO[MODO_MONITORAMENTO]
+INTERVALO_SEGUNDOS = config_modo["intervalo_segundos"]
+INTERVALO_MONITORAMENTO = config_modo["frequencia_monitoramento"]
+VALORES_CLIPES_POR_VIEWERS = config_modo["min_clipes"]
+
 
 def agrupar_clipes_por_proximidade(clipes, intervalo_segundos=30, minimo_clipes=3):
     clipes_ordenados = sorted(
@@ -45,45 +71,30 @@ def get_time_minutes_ago(minutes=5):
 
 def minimo_clipes_por_viewers(viewers):
     if viewers <= 25000:
-        return 2
+        return VALORES_CLIPES_POR_VIEWERS[0]
     elif viewers <= 50000:
-        return 3
+        return VALORES_CLIPES_POR_VIEWERS[1]
     elif viewers <= 100000:
-        return 4
+        return VALORES_CLIPES_POR_VIEWERS[2]
     else:
-        return 4
+        return VALORES_CLIPES_POR_VIEWERS[3]
 
 def eh_clipe_ao_vivo_real(clip, twitch, user_id):
-    """
-    Determina se um clipe pertence à live atual (CLIPE AO VIVO) ou a uma live anterior (CLIPE DO VOD).
-
-    Regras:
-    - Se o streamer estiver online.
-    - Se o VOD mais recente for o mesmo do clipe.
-    - Se o clipe tiver sido criado dentro da duração da live atual.
-
-    Caso contrário, é considerado um clipe do VOD antigo.
-    """
     stream = twitch.get_stream_info(user_id)
     if not stream:
-        return False  # streamer offline, clipe nunca é "ao vivo"
+        return False
 
     vod = twitch.get_latest_vod(user_id)
     if not vod:
         return False
 
-    # O ID do VOD (video) precisa bater com o ID do clipe
     if str(clip.get("video_id")) != str(vod["id"]):
         return False
 
-    # Tempo de início da transmissão (VOD)
     vod_start = datetime.fromisoformat(vod["created_at"].replace("Z", "+00:00"))
-
-    # Tempo atual (agora) e do clipe
     agora = datetime.now(timezone.utc)
     clip_created = datetime.fromisoformat(clip["created_at"].replace("Z", "+00:00"))
 
-    # Se o clipe foi criado dentro da duração da live atual, é AO VIVO
     return vod_start <= clip_created <= agora
 
 def montar_descricao(streamer_nome, stream_status, minimo_clipes, intervalo_grupo):

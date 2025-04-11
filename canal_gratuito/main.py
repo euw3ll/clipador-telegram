@@ -12,6 +12,8 @@ from .core.monitor import (
     montar_descricao,
     minimo_clipes_por_viewers,
     eh_clipe_ao_vivo_real,
+    INTERVALO_SEGUNDOS,
+    INTERVALO_MONITORAMENTO,
 )
 from .core.telegram import (
     enviar_mensagem,
@@ -20,11 +22,9 @@ from .core.telegram import (
     enviar_header_streamers,
     enviar_mensagem_atualizacao_streamers,
 )
-from .configuracoes import (
+from configuracoes import (
     STREAMER,
-    INTERVALO_MONITORAMENTO,
     INTERVALO_ATUALIZAR_DESCRICAO,
-    INTERVALO_SEGUNDOS,
     INTERVALO_MENSAGEM_PROMOCIONAL,
     INTERVALO_MENSAGEM_HEADER,
     INTERVALO_ATUALIZACAO_STREAMERS,
@@ -85,25 +85,40 @@ if __name__ == "__main__":
         while True:
             agora = time.time()
 
-            # Mensagens automáticas
-            if agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
-                if TIPO_LOG == "DESENVOLVEDOR":
-                    print("💬 Enviando mensagem promocional...")
-                enviar_mensagem_promocional()
-                estado["ultimo_envio_promocional"] = agora
+            # Monitoramento de clipes
+            if TIPO_LOG == "DESENVOLVEDOR":
+                print("🎥 Buscando clipes recentes...")
 
-            if agora - estado["ultimo_envio_header"] >= INTERVALO_MENSAGEM_HEADER:
-                if TIPO_LOG == "DESENVOLVEDOR":
-                    print("📢 Enviando banner de streamers...")
-                enviar_header_streamers([STREAMER])
-                estado["ultimo_envio_header"] = agora
+            clipes = twitch.get_recent_clips(user_id, started_at)
+            clipes_novos = [c for c in clipes if all(
+                not (grupo["inicio"] <= c["created_at"] <= grupo["fim"])
+                for grupo in estado["grupos_enviados"]
+            )]
 
-            if agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
-                if TIPO_LOG == "DESENVOLVEDOR":
-                    print("🔄 Enviando mensagem de atualização de streamers...")
-                enviar_mensagem_atualizacao_streamers()
-                estado["ultimo_envio_atualizacao_streamers"] = agora
+            if TIPO_LOG == "DESENVOLVEDOR":
+                print(f"🔎 {len(clipes_novos)} clipe(s) novo(s) após filtro de repetidos.")
 
+            # Enviar mensagens automáticas (somente se houver clipes novos)
+            if clipes_novos:
+                if INTERVALO_MENSAGEM_PROMOCIONAL > 0 and agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
+                    if TIPO_LOG == "DESENVOLVEDOR":
+                        print("💬 Enviando mensagem promocional...")
+                    enviar_mensagem_promocional()
+                    estado["ultimo_envio_promocional"] = agora
+
+                if INTERVALO_MENSAGEM_HEADER > 0 and agora - estado["ultimo_envio_header"] >= INTERVALO_MENSAGEM_HEADER:
+                    if TIPO_LOG == "DESENVOLVEDOR":
+                        print("📢 Enviando banner de streamers...")
+                    enviar_header_streamers([STREAMER])
+                    estado["ultimo_envio_header"] = agora
+
+                if INTERVALO_ATUALIZACAO_STREAMERS > 0 and agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
+                    if TIPO_LOG == "DESENVOLVEDOR":
+                        print("🔄 Enviando mensagem de atualização de streamers...")
+                    enviar_mensagem_atualizacao_streamers()
+                    estado["ultimo_envio_atualizacao_streamers"] = agora
+
+            # Atualizar descrição do canal
             if ATUALIZAR_DESCRICAO and agora - estado["descricao"] >= INTERVALO_ATUALIZAR_DESCRICAO:
                 if TIPO_LOG == "DESENVOLVEDOR":
                     print("📝 Atualizando descrição do canal...")
@@ -122,19 +137,7 @@ if __name__ == "__main__":
 
                 estado["descricao"] = agora
 
-            # Monitoramento
-            if TIPO_LOG == "DESENVOLVEDOR":
-                print("🎥 Buscando clipes recentes...")
-
-            clipes = twitch.get_recent_clips(user_id, started_at)
-            clipes_novos = [c for c in clipes if all(
-                not (grupo["inicio"] <= c["created_at"] <= grupo["fim"])
-                for grupo in estado["grupos_enviados"]
-            )]
-
-            if TIPO_LOG == "DESENVOLVEDOR":
-                print(f"🔎 {len(clipes_novos)} clipe(s) novo(s) após filtro de repetidos.")
-
+            # Processar grupos virais
             grupos = agrupar_clipes_por_proximidade(clipes_novos, intervalo_segundos=INTERVALO_SEGUNDOS)
             stream = twitch.get_stream_info(user_id)
             viewers = stream["viewer_count"] if stream else 0
@@ -208,6 +211,7 @@ if __name__ == "__main__":
             salvar_estado(estado)
             if TIPO_LOG == "DESENVOLVEDOR":
                 print("💾 Estado salvo com sucesso.\n")
+
             time.sleep(INTERVALO_MONITORAMENTO)
 
     except KeyboardInterrupt:

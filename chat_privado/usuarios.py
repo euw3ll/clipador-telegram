@@ -10,6 +10,10 @@ def carregar_usuarios():
     with open(CAMINHO_USUARIOS, "r", encoding="utf-8") as f:
         return json.load(f)
 
+# 🔁 Alias da função carregar_usuarios para compatibilidade
+def carregar_db_usuarios():
+    return carregar_usuarios()
+
 def salvar_usuarios(dados):
     with open(CAMINHO_USUARIOS, "w", encoding="utf-8") as f:
         json.dump(dados, f, indent=2)
