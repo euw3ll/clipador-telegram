@@ -14,9 +14,9 @@ from .handlers import (
     cancelar_criacao
 )
 from .usuarios import carregar_db_usuarios
+from canal_gratuito.config import TELEGRAM_BOT_TOKEN  # ⬅️ corrigido aqui
 
 def iniciar_chat_privado():
-    from config import TELEGRAM_BOT_TOKEN
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(

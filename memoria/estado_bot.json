@@ -1,7 +1,7 @@
 {
-  "ultima_execucao": "2025-04-11T18:49:34.259295+00:00",
+  "ultima_execucao": "2025-04-11T20:20:42.950613+00:00",
   "enviados": [],
-  "ultimo_envio_promocional": 1744396970.6356883,
+  "ultimo_envio_promocional": 1744402746.13669,
   "ultimo_envio_header": 1744390158.3447633,
   "ultimo_envio_atualizacao_streamers": 1744390158.3447633,
   "clipes_enviados": [
@@ -26,7 +26,7 @@
     "DifficultSmellyRutabagaYouWHY-uE3k9qGdmcbBSXUz",
     "AbstruseTacitLapwingJonCarnage-fHjEFxJNQBKdtWX5"
   ],
-  "descricao": 1744397185.3201354,
+  "descricao": 1744402746.13669,
   "grupos_enviados": [
     {
       "inicio": "2025-04-10T19:42:52+00:00",
@@ -439,6 +439,14 @@
     {
       "inicio": "2025-04-11T18:44:49+00:00",
       "fim": "2025-04-11T18:46:19+00:00"
+    },
+    {
+      "inicio": "2025-04-11T20:12:29+00:00",
+      "fim": "2025-04-11T20:13:59+00:00"
+    },
+    {
+      "inicio": "2025-04-11T20:18:43+00:00",
+      "fim": "2025-04-11T20:20:13+00:00"
     }
   ]
 }

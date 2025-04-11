@@ -3,7 +3,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 import requests
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from canal_gratuito.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 
 def enviar_mensagem(texto, botao_url=None, botao_texto=None, chat_id=TELEGRAM_CHAT_ID):
@@ -46,7 +46,7 @@ def atualizar_descricao_telegram(streamer_nome, status, viewers, minimo_clipes, 
     except requests.exceptions.RequestException as e:
         print(f"⚠️ Erro ao atualizar descrição do canal: {e}")
 
-# 🔹 Mensagem promocional para quem quiser contratar o Clipador
+
 def enviar_mensagem_promocional(chat_id=TELEGRAM_CHAT_ID):
     mensagem = (
         "💸 <b>Quer um canal monitorando seus Streamers</b>"
@@ -56,7 +56,6 @@ def enviar_mensagem_promocional(chat_id=TELEGRAM_CHAT_ID):
     enviar_mensagem(mensagem, chat_id=chat_id)
 
 
-# 🔹 Header do canal com streamers monitorados
 def enviar_header_streamers(lista_streamers, chat_id=TELEGRAM_CHAT_ID):
     if not lista_streamers:
         return
@@ -84,7 +83,6 @@ def enviar_header_streamers(lista_streamers, chat_id=TELEGRAM_CHAT_ID):
         requests.post(url_pin, json={"chat_id": chat_id, "message_id": message_id, "disable_notification": True})
 
 
-# 🔹 Mensagem automática ao atualizar os streamers monitorados
 def enviar_mensagem_atualizacao_streamers(chat_id=TELEGRAM_CHAT_ID):
     mensagem = (
         "Estamos acompanhando em tempo real os <b>5 streamers mais assistidos do Brasil</b> no momento.\n\n"
