@@ -2,6 +2,8 @@ import subprocess
 import sys
 import os
 import json
+import asyncio
+from chat_privado.main import iniciar_chat_privado
 
 ESTADO_PATH = "memoria/estado_bot.json"
 
@@ -29,7 +31,9 @@ if __name__ == "__main__":
     criar_estado_se_nao_existir()
 
     print("🚀 Iniciando o canal gratuito...")
-try:
-    subprocess.run([sys.executable, "-m", "canal_gratuito.main"])
-except KeyboardInterrupt:
-    print("\n🛑 Clipador encerrado.")
+
+    try:
+        subprocess.Popen([sys.executable, "-m", "canal_gratuito.main"])
+        asyncio.run(iniciar_chat_privado())
+    except KeyboardInterrupt:
+        print("\n🛑 Clipador encerrado.")

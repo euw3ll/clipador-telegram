@@ -1,14 +1,14 @@
+import asyncio
 from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-from chat_privado.handlers import responder_primeira_interacao
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
+from .handlers import responder_primeira_interacao
 from canal_gratuito.config import TELEGRAM_BOT_TOKEN
 
+def iniciar_chat_privado():
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await responder_primeira_interacao(update, context)
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, responder_primeira_interacao)
+    )
 
-
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.run_polling()
+    asyncio.run(application.run_polling())

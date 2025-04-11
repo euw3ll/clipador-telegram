@@ -7,8 +7,8 @@ from canal_gratuito.config import (
 
 # 🎮 LÓGICA DO MONITORAMENTO
 STREAMER = "loud_coringa"
-INTERVALO_SEGUNDOS = 60  # Janela para agrupar clipes próximos
-INTERVALO_MONITORAMENTO = 90  # Frequência entre verificações
+INTERVALO_SEGUNDOS = 90  # Janela para agrupar clipes próximos
+INTERVALO_MONITORAMENTO = 30  # Frequência entre verificações
 
 # 💬 CANAL DO TELEGRAM
 INTERVALO_ATUALIZAR_DESCRICAO = 300
