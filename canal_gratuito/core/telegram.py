@@ -1,10 +1,8 @@
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-
 import requests
-from canal_gratuito.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
+from core.ambiente import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
 
 def enviar_mensagem(texto, botao_url=None, botao_texto=None, chat_id=TELEGRAM_CHAT_ID):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"

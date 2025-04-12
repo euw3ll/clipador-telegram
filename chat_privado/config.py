@@ -1,1 +1,0 @@
-MODO_MANUTENCAO = True

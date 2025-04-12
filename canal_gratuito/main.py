@@ -1,7 +1,8 @@
 import os
 import time
-from datetime import datetime, timezone
 
+from datetime import datetime, timezone
+from core.bootstrap import iniciar_ambiente
 from memoria.estado import carregar_estado, salvar_estado
 
 from .core.twitch import TwitchAPI

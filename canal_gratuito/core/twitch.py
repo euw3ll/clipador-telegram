@@ -1,9 +1,8 @@
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-
 import requests
-from canal_gratuito.config import TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
+
+from core.ambiente import TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
 
 class TwitchAPI:
     def __init__(self):
