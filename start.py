@@ -5,4 +5,4 @@ try:
 except KeyboardInterrupt:
     pass
 finally:
-    print("\n🛑 Clipador encerrado.")
+    pass

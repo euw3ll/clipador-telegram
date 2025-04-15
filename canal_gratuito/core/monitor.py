@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from configuracoes import MODO_MONITORAMENTO
 
+# Modos antigos (mantidos apenas para uso futuro nos canais privados)
 MODOS_MONITORAMENTO = {
     "MODO_LOUCO": {
         "min_clipes": [1, 2, 3, 3],
@@ -19,11 +20,10 @@ MODOS_MONITORAMENTO = {
     },
 }
 
-# 🔧 Extraído do modo ativo
-config_modo = MODOS_MONITORAMENTO[MODO_MONITORAMENTO]
-INTERVALO_SEGUNDOS = config_modo["intervalo_segundos"]
-INTERVALO_MONITORAMENTO = config_modo["frequencia_monitoramento"]
-VALORES_CLIPES_POR_VIEWERS = config_modo["min_clipes"]
+# Critério fixo para o canal gratuito
+INTERVALO_SEGUNDOS = 120
+INTERVALO_MONITORAMENTO = 60
+MINIMO_CLIPES = 3
 
 def agrupar_clipes_por_proximidade(clipes, intervalo_segundos=30, minimo_clipes=3):
     clipes_ordenados = sorted(
@@ -71,14 +71,7 @@ def get_time_minutes_ago(minutes=5):
     return dt.isoformat().replace("+00:00", "Z")
 
 def minimo_clipes_por_viewers(viewers):
-    if viewers <= 25000:
-        return VALORES_CLIPES_POR_VIEWERS[0]
-    elif viewers <= 50000:
-        return VALORES_CLIPES_POR_VIEWERS[1]
-    elif viewers <= 100000:
-        return VALORES_CLIPES_POR_VIEWERS[2]
-    else:
-        return VALORES_CLIPES_POR_VIEWERS[3]
+    return MINIMO_CLIPES
 
 def eh_clipe_ao_vivo_real(clip, twitch, user_id):
     stream = twitch.get_stream_info(user_id)
@@ -97,12 +90,3 @@ def eh_clipe_ao_vivo_real(clip, twitch, user_id):
     clip_created = datetime.fromisoformat(clip["created_at"].replace("Z", "+00:00"))
 
     return vod_start <= clip_created <= agora
-
-def montar_descricao(streamer_nome, stream_status, minimo_clipes, intervalo_grupo):
-    status_emoji = "🟢 ONLINE" if stream_status == "ONLINE" else "🔴 OFFLINE"
-    return (
-        f"O CLIPADOR ESTÁ ONLINE 😎\n"
-        f"👀 @{streamer_nome} - {status_emoji}\n"
-        f"🔥 CRITÉRIO - Grupo de {minimo_clipes} clipes em {intervalo_grupo}s\n\n"
-        f"Criado por @euw3ll"
-    )
