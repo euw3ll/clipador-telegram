@@ -1,6 +1,6 @@
 {
-  "ultima_execucao": "2025-04-15T22:31:30.328040+00:00",
-  "ultimo_envio_promocional": 1744754301.90474,
+  "ultima_execucao": "2025-04-15T23:26:18.244778+00:00",
+  "ultimo_envio_promocional": 1744757463.8617737,
   "ultimo_envio_header": 1744754301.90474,
   "ultimo_envio_atualizacao_streamers": 1744754301.90474,
   "grupos_enviados": [
@@ -39,6 +39,10 @@
     {
       "inicio": "2025-04-15T21:57:35+00:00",
       "fim": "2025-04-15T21:58:38+00:00"
+    },
+    {
+      "inicio": "2025-04-15T22:38:48+00:00",
+      "fim": "2025-04-15T22:40:16+00:00"
     }
   ]
 }
