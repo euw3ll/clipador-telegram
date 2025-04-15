@@ -1,6 +1,6 @@
 from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
-from .usuarios import get_nivel_usuario, registrar_usuario
+from .usuarios import get_nivel_usuario
 
 # Estados da criação de canal
 (
@@ -17,10 +17,11 @@ dados_temp = {}
 async def responder_primeira_interacao(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     nome = update.effective_user.first_name or "usuário"
-    nivel = get_nivel_usuario(user_id)
+    
+    # Já registra o usuário se não existir
+    nivel = get_nivel_usuario(user_id, nome)
 
     if nivel == 1:
-        registrar_usuario(user_id)
         mensagem = (
             f"Aoba Clipadô! {nome}, que nome lindo 😍\n\n"
             "Notei que você NÃO TEM UMA ASSINATURA ATIVA 😱\n"
@@ -36,6 +37,7 @@ async def responder_primeira_interacao(update: Update, context: ContextTypes.DEF
         mensagem = "👀 Nível desconhecido."
 
     await update.message.reply_text(mensagem)
+
 
 # 🔧 Criação de canal
 async def criar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):

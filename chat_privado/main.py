@@ -13,7 +13,6 @@ from .handlers import (
     receber_streamer,
     cancelar_criacao
 )
-from .usuarios import carregar_db_usuarios
 from core.ambiente import TELEGRAM_BOT_TOKEN  # ⬅️ corrigido aqui
 
 def iniciar_chat_privado():

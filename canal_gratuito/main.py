@@ -1,7 +1,7 @@
 import os
 import time
-
 from datetime import datetime, timezone
+
 from core.bootstrap import iniciar_ambiente
 from memoria.estado import carregar_estado, salvar_estado
 
@@ -33,8 +33,10 @@ from configuracoes import (
     ATUALIZAR_DESCRICAO,
     ENVIAR_CLIPES,
     USAR_VERIFICACAO_AO_VIVO,
+    MODO_MONITORAMENTO,
 )
 
+INTERVALO_ANALISE_MINUTOS = 10
 
 def limpar_terminal():
     os.system("cls" if os.name == "nt" else "clear")
@@ -67,11 +69,11 @@ if __name__ == "__main__":
     estado.setdefault("grupos_enviados", [])
 
     ultima_execucao = estado["ultima_execucao"]
-    tempo_offline = 600
+    tempo_offline = 1200
     if ultima_execucao:
         delta = datetime.now(timezone.utc) - datetime.fromisoformat(ultima_execucao)
         if delta.total_seconds() > tempo_offline:
-            started_at = get_time_minutes_ago(5)
+            started_at = get_time_minutes_ago(INTERVALO_ANALISE_MINUTOS)
         else:
             started_at = (
                 datetime.fromisoformat(ultima_execucao)
@@ -80,13 +82,12 @@ if __name__ == "__main__":
                 .replace("+00:00", "Z")
             )
     else:
-        started_at = get_time_minutes_ago(5)
+        started_at = get_time_minutes_ago(INTERVALO_ANALISE_MINUTOS)
 
     try:
         while True:
             agora = time.time()
 
-            # Monitoramento de clipes
             if TIPO_LOG == "DESENVOLVEDOR":
                 print("🎥 Buscando clipes recentes...")
 
@@ -99,27 +100,6 @@ if __name__ == "__main__":
             if TIPO_LOG == "DESENVOLVEDOR":
                 print(f"🔎 {len(clipes_novos)} clipe(s) novo(s) após filtro de repetidos.")
 
-            # Enviar mensagens automáticas (somente se houver clipes novos)
-            if clipes_novos:
-                if INTERVALO_MENSAGEM_PROMOCIONAL > 0 and agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
-                    if TIPO_LOG == "DESENVOLVEDOR":
-                        print("💬 Enviando mensagem promocional...")
-                    enviar_mensagem_promocional()
-                    estado["ultimo_envio_promocional"] = agora
-
-                if INTERVALO_MENSAGEM_HEADER > 0 and agora - estado["ultimo_envio_header"] >= INTERVALO_MENSAGEM_HEADER:
-                    if TIPO_LOG == "DESENVOLVEDOR":
-                        print("📢 Enviando banner de streamers...")
-                    enviar_header_streamers([STREAMER])
-                    estado["ultimo_envio_header"] = agora
-
-                if INTERVALO_ATUALIZACAO_STREAMERS > 0 and agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
-                    if TIPO_LOG == "DESENVOLVEDOR":
-                        print("🔄 Enviando mensagem de atualização de streamers...")
-                    enviar_mensagem_atualizacao_streamers()
-                    estado["ultimo_envio_atualizacao_streamers"] = agora
-
-            # Atualizar descrição do canal
             if ATUALIZAR_DESCRICAO and agora - estado["descricao"] >= INTERVALO_ATUALIZAR_DESCRICAO:
                 if TIPO_LOG == "DESENVOLVEDOR":
                     print("📝 Atualizando descrição do canal...")
@@ -138,7 +118,6 @@ if __name__ == "__main__":
 
                 estado["descricao"] = agora
 
-            # Processar grupos virais
             grupos = agrupar_clipes_por_proximidade(clipes_novos, intervalo_segundos=INTERVALO_SEGUNDOS)
             stream = twitch.get_stream_info(user_id)
             viewers = stream["viewer_count"] if stream else 0
@@ -147,14 +126,7 @@ if __name__ == "__main__":
 
             ao_vivo_enviados = 0
             vod_enviados = 0
-
-            if TIPO_LOG == "PADRAO":
-                limpar_terminal()
-                print(f"🎯 Monitorando: 📺 @{user_info['display_name']}")
-                print("-" * 50)
-                print(f"🎥 {len(clipes)} clipe(s) encontrados nos últimos 5 minutos.")
-            elif TIPO_LOG == "DESENVOLVEDOR":
-                print(f"\n🧠 Grupos virais detectados: {len(virais)}")
+            grupo_enviado = False  # Novo controle
 
             for grupo in virais:
                 inicio = grupo["inicio"]
@@ -201,12 +173,45 @@ if __name__ == "__main__":
                 else:
                     vod_enviados += 1
 
+                grupo_enviado = True
+
             total_enviados = ao_vivo_enviados + vod_enviados
-            if TIPO_LOG in ("PADRAO", "DESENVOLVEDOR"):
+
+            # ✅ SOMENTE SE HOUVE ENVIO DE GRUPO
+            if grupo_enviado:
+                if INTERVALO_MENSAGEM_PROMOCIONAL > 0 and agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
+                    if TIPO_LOG == "DESENVOLVEDOR":
+                        print("💬 Enviando mensagem promocional...")
+                    enviar_mensagem_promocional()
+                    estado["ultimo_envio_promocional"] = agora
+
+                if INTERVALO_MENSAGEM_HEADER > 0 and agora - estado["ultimo_envio_header"] >= INTERVALO_MENSAGEM_HEADER:
+                    if TIPO_LOG == "DESENVOLVEDOR":
+                        print("📢 Enviando banner de streamers...")
+                    enviar_header_streamers([STREAMER])
+                    estado["ultimo_envio_header"] = agora
+
+                if INTERVALO_ATUALIZACAO_STREAMERS > 0 and agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
+                    if TIPO_LOG == "DESENVOLVEDOR":
+                        print("🔄 Enviando mensagem de atualização de streamers...")
+                    enviar_mensagem_atualizacao_streamers()
+                    estado["ultimo_envio_atualizacao_streamers"] = agora
+
+            if TIPO_LOG == "PADRAO":
+                limpar_terminal()
+                print(f"🎯 Monitorando: 📺 @{user_info['display_name']}")
+                print("-" * 50)
+                print(f"🎥 {len(clipes)} clipe(s) encontrados nos últimos {INTERVALO_ANALISE_MINUTOS} minutos.")
                 if total_enviados == 0:
                     print("❌ Nenhum grupo viral identificado.")
                 else:
                     print(f"✅ {total_enviados} grupo(s) enviado(s): {ao_vivo_enviados} AO VIVO / {vod_enviados} VOD")
+                print("-" * 50)
+                print(f"🧪 MODO DE MONITORAMENTO: {MODO_MONITORAMENTO}")
+                print(f"🔥 CRITÉRIO: Grupo de {minimo_clipes} clipes em {INTERVALO_SEGUNDOS}s")
+
+            elif TIPO_LOG == "DESENVOLVEDOR":
+                print(f"\n🧠 Grupos virais detectados: {len(virais)}")
 
             estado["ultima_execucao"] = datetime.now(timezone.utc).isoformat()
             salvar_estado(estado)

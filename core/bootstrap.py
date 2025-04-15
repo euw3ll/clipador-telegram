@@ -4,6 +4,7 @@ from core.ambiente import (
     TELEGRAM_BOT_TOKEN,
     TELEGRAM_CHAT_ID
 )
+from core.database import criar_tabelas  # ⬅️ IMPORTANTE
 
 def validar_variaveis_ambiente():
     if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
@@ -14,4 +15,5 @@ def validar_variaveis_ambiente():
 def iniciar_ambiente():
     print("🔁 Validando variáveis de ambiente...")
     validar_variaveis_ambiente()
+    criar_tabelas()  # ⬅️ CRIA AS TABELAS NO BANCO
     print("✅ Ambiente validado com sucesso.")

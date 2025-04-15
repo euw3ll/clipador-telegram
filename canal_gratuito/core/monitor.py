@@ -3,7 +3,7 @@ from configuracoes import MODO_MONITORAMENTO
 
 MODOS_MONITORAMENTO = {
     "MODO_LOUCO": {
-        "min_clipes": [1, 2, 3],
+        "min_clipes": [1, 2, 3, 3],
         "intervalo_segundos": 150,
         "frequencia_monitoramento": 15,
     },
@@ -25,7 +25,6 @@ INTERVALO_SEGUNDOS = config_modo["intervalo_segundos"]
 INTERVALO_MONITORAMENTO = config_modo["frequencia_monitoramento"]
 VALORES_CLIPES_POR_VIEWERS = config_modo["min_clipes"]
 
-
 def agrupar_clipes_por_proximidade(clipes, intervalo_segundos=30, minimo_clipes=3):
     clipes_ordenados = sorted(
         clipes,
@@ -35,30 +34,32 @@ def agrupar_clipes_por_proximidade(clipes, intervalo_segundos=30, minimo_clipes=
     grupos = []
     usados = set()
 
-    for i in range(len(clipes_ordenados)):
-        clipe_base = clipes_ordenados[i]
-        base_time = datetime.fromisoformat(clipe_base["created_at"].replace("Z", "+00:00"))
+    for i, clipe_base in enumerate(clipes_ordenados):
+        if clipe_base["id"] in usados:
+            continue
 
+        base_time = datetime.fromisoformat(clipe_base["created_at"].replace("Z", "+00:00"))
         grupo = [clipe_base]
+        usados_temp = {clipe_base["id"]}
 
         for j in range(i + 1, len(clipes_ordenados)):
             outro_clipe = clipes_ordenados[j]
             outro_time = datetime.fromisoformat(outro_clipe["created_at"].replace("Z", "+00:00"))
             delta = (outro_time - base_time).total_seconds()
 
-            if delta <= intervalo_segundos:
+            if delta <= intervalo_segundos and outro_clipe["id"] not in usados:
                 grupo.append(outro_clipe)
+                usados_temp.add(outro_clipe["id"])
             else:
                 break
 
-        ids_grupo = {c["id"] for c in grupo}
-        if len(grupo) >= minimo_clipes and not ids_grupo & usados:
+        if len(grupo) >= minimo_clipes:
             grupos.append({
                 "inicio": base_time,
-                "fim": base_time + timedelta(seconds=intervalo_segundos),
+                "fim": grupo[-1]["created_at"],
                 "clipes": grupo
             })
-            usados.update(ids_grupo)
+            usados.update(usados_temp)
 
     return grupos
 
