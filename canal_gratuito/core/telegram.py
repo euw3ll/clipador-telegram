@@ -1,8 +1,7 @@
-import sys
-import os
 import requests
-
 from core.ambiente import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+
+ultima_descricao = None
 
 def enviar_mensagem(texto, botao_url=None, botao_texto=None, chat_id=TELEGRAM_CHAT_ID):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -21,16 +20,26 @@ def enviar_mensagem(texto, botao_url=None, botao_texto=None, chat_id=TELEGRAM_CH
     r = requests.post(url, json=payload)
     r.raise_for_status()
 
+def atualizar_descricao_telegram(minimo_clipes, intervalo_segundos, quantidade_streamers, chat_id=TELEGRAM_CHAT_ID):
+    global ultima_descricao
 
-def atualizar_descricao_telegram(streamer_nome, status, viewers, minimo_clipes, intervalo, chat_id=TELEGRAM_CHAT_ID):
-    status_emoji = "🔴 AO VIVO" if status == "ONLINE" else "🟡 OFFLINE"
-    
     descricao = (
-        f"O CLIPADOR ESTÁ ONLINE 😎\n"
-        f"👀 @{streamer_nome} - {status_emoji}\n"
-        f"👥 {viewers} espectadores agora\n"
-        f"🔥 Grupo de {minimo_clipes} clipes em {intervalo}s"
-    )[:255]
+        f"😎 CLIPADOR ONLINE\n"
+        f"🇧🇷 Top {quantidade_streamers} streamers do Brasil\n"
+        f"🔥 {minimo_clipes}+ clipes em {intervalo_segundos}s = ENVIO"
+    )
+
+    if descricao == ultima_descricao:
+        return  # Não envia se for igual
+
+    # 🔎 Mostrar antes de cortar
+    print("🔍 Tentando atualizar descrição com o seguinte conteúdo:")
+    print(repr(descricao))
+    print(f"📏 Tamanho: {len(descricao)} caracteres")
+
+    # 🚫 Limite do Telegram
+    if len(descricao) > 255:
+        descricao = descricao[:252] + "..."
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setChatDescription"
     data = {
@@ -41,9 +50,10 @@ def atualizar_descricao_telegram(streamer_nome, status, viewers, minimo_clipes, 
     try:
         r = requests.post(url, json=data)
         r.raise_for_status()
+        ultima_descricao = descricao
+        print("✅ Descrição atualizada com sucesso.")
     except requests.exceptions.RequestException as e:
         print(f"⚠️ Erro ao atualizar descrição do canal: {e}")
-
 
 def enviar_mensagem_promocional(chat_id=TELEGRAM_CHAT_ID):
     mensagem = (
@@ -53,11 +63,18 @@ def enviar_mensagem_promocional(chat_id=TELEGRAM_CHAT_ID):
     )
     enviar_mensagem(mensagem, chat_id=chat_id)
 
-
 def enviar_header_streamers(lista_streamers, chat_id=TELEGRAM_CHAT_ID):
     if not lista_streamers:
         return
 
+    # 1. Desfixar mensagem anterior (se houver)
+    try:
+        url_unpin = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/unpinChatMessage"
+        requests.post(url_unpin, json={"chat_id": chat_id})
+    except Exception as e:
+        print(f"⚠️ Erro ao desfixar mensagem anterior: {e}")
+
+    # 2. Criar nova mensagem
     nomes = "\n".join([f"• @{s}" for s in lista_streamers])
     mensagem = (
         "📢 <b>STREAMERS MONITORADOS AGORA:</b>\n"
@@ -76,14 +93,29 @@ def enviar_header_streamers(lista_streamers, chat_id=TELEGRAM_CHAT_ID):
     r.raise_for_status()
     message_id = r.json().get("result", {}).get("message_id")
 
+    # 3. Fixar a nova
     if message_id:
         url_pin = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/pinChatMessage"
         requests.post(url_pin, json={"chat_id": chat_id, "message_id": message_id, "disable_notification": True})
 
-
-def enviar_mensagem_atualizacao_streamers(chat_id=TELEGRAM_CHAT_ID):
+def enviar_mensagem_atualizacao_streamers(qtd=5, chat_id=TELEGRAM_CHAT_ID):
     mensagem = (
-        "Estamos acompanhando em tempo real os <b>5 streamers mais assistidos do Brasil</b> no momento.\n\n"
+        f"Estamos acompanhando em tempo real os <b>{qtd} streamers mais assistidos do Brasil</b> no momento.\n\n"
         "📺 Fique ligado e aproveite os melhores clipes! 🎯"
     )
     enviar_mensagem(mensagem, chat_id=chat_id)
+
+def atualizar_descricao_telegram_offline(chat_id=TELEGRAM_CHAT_ID):
+    descricao = "O CLIPADOR ESTÁ OFFLINE 😭"
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setChatDescription"
+    data = {
+        "chat_id": chat_id,
+        "description": descricao
+    }
+
+    try:
+        r = requests.post(url, json=data)
+        r.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Erro ao atualizar descrição do canal para OFFLINE: {e}")

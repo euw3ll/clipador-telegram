@@ -56,3 +56,10 @@ class TwitchAPI:
         r.raise_for_status()
         data = r.json().get("data", [])
         return data[0] if data else None
+
+    def get_top_streamers_brasil(self, quantidade=5):
+        url = f"https://api.twitch.tv/helix/streams?first=100&language=pt"
+        r = requests.get(url, headers=self.get_headers())
+        r.raise_for_status()
+        data = r.json().get("data", [])
+        return [stream["user_login"] for stream in data[:quantidade]]
