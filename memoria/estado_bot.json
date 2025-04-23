@@ -1,8 +1,8 @@
 {
-  "ultima_execucao": "2025-04-15T23:26:18.244778+00:00",
-  "ultimo_envio_promocional": 1744757463.8617737,
-  "ultimo_envio_header": 1744754301.90474,
-  "ultimo_envio_atualizacao_streamers": 1744754301.90474,
+  "ultima_execucao": "2025-04-23T14:42:06.841668+00:00",
+  "ultimo_envio_promocional": 1745336290.849654,
+  "ultimo_envio_header": 1745336290.849654,
+  "ultimo_envio_atualizacao_streamers": 1745336290.849654,
   "grupos_enviados": [
     {
       "inicio": "2025-04-15T17:12:54+00:00",
@@ -43,6 +43,14 @@
     {
       "inicio": "2025-04-15T22:38:48+00:00",
       "fim": "2025-04-15T22:40:16+00:00"
+    },
+    {
+      "inicio": "2025-04-22T15:27:54+00:00",
+      "fim": "2025-04-22T15:29:14+00:00"
+    },
+    {
+      "inicio": "2025-04-22T15:34:12+00:00",
+      "fim": "2025-04-22T15:35:38+00:00"
     }
   ]
 }

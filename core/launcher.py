@@ -6,6 +6,15 @@ import json
 from chat_privado.main import iniciar_chat_privado
 from core.bootstrap import iniciar_ambiente
 
+import pytz
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+# Forçar timezone UTC corretamente
+def scheduler_utc_patch(self, config=None, **kwargs):
+    self._configure({'timezone': pytz.utc})
+
+AsyncIOScheduler.configure = scheduler_utc_patch
+
 ESTADO_PATH = "memoria/estado_bot.json"
 
 def criar_estado_se_nao_existir():

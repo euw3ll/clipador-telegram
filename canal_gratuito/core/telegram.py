@@ -20,40 +20,43 @@ def enviar_mensagem(texto, botao_url=None, botao_texto=None, chat_id=TELEGRAM_CH
     r = requests.post(url, json=payload)
     r.raise_for_status()
 
+
 def atualizar_descricao_telegram(minimo_clipes, intervalo_segundos, quantidade_streamers, chat_id=TELEGRAM_CHAT_ID):
     global ultima_descricao
 
-    descricao = (
+    descricao_nova = (
         f"😎 CLIPADOR ONLINE\n"
         f"🇧🇷 Top {quantidade_streamers} streamers do Brasil\n"
         f"🔥 {minimo_clipes}+ clipes em {intervalo_segundos}s = ENVIO"
     )
 
-    if descricao == ultima_descricao:
-        return  # Não envia se for igual
+    if descricao_nova == ultima_descricao:
+        return  # 🔁 Já é igual, não envia
 
-    # 🔎 Mostrar antes de cortar
     print("🔍 Tentando atualizar descrição com o seguinte conteúdo:")
-    print(repr(descricao))
-    print(f"📏 Tamanho: {len(descricao)} caracteres")
+    print(repr(descricao_nova))
+    print(f"📏 Tamanho: {len(descricao_nova)} caracteres")
 
-    # 🚫 Limite do Telegram
-    if len(descricao) > 255:
-        descricao = descricao[:252] + "..."
+    if len(descricao_nova) > 255:
+        descricao_nova = descricao_nova[:252] + "..."
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setChatDescription"
-    data = {
+    payload = {
         "chat_id": chat_id,
-        "description": descricao
+        "description": descricao_nova
     }
 
     try:
-        r = requests.post(url, json=data)
-        r.raise_for_status()
-        ultima_descricao = descricao
+        response = requests.post(url, json=payload)
+        if response.status_code == 400 and "Bad Request" in response.text:
+            print("⚠️ Descrição já é igual ou erro de permissão. Ignorando.")
+            return
+        response.raise_for_status()
+        ultima_descricao = descricao_nova
         print("✅ Descrição atualizada com sucesso.")
     except requests.exceptions.RequestException as e:
         print(f"⚠️ Erro ao atualizar descrição do canal: {e}")
+
 
 def enviar_mensagem_promocional(chat_id=TELEGRAM_CHAT_ID):
     mensagem = (
