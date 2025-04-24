@@ -10,5 +10,5 @@ from canal_gratuito.core.telegram import atualizar_descricao_telegram_offline
 try:
     iniciar_clipador()
 except KeyboardInterrupt:
-    print("\n🛑 Clipador encerrado.")
+    print("\n🛑 Clipador encerrado.\n\n")
     atualizar_descricao_telegram_offline()
