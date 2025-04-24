@@ -165,7 +165,8 @@ if __name__ == "__main__":
                 if ATUALIZAR_DESCRICAO:
                     stream_status = twitch.get_stream_status(user_id)
                     try:
-                        atualizar_descricao_telegram(minimo_clipes, INTERVALO_SEGUNDOS, QUANTIDADE_STREAMERS)
+                        logins_monitorados = [s["login"] for s in top_streamers]
+                        atualizar_descricao_telegram(minimo_clipes, INTERVALO_SEGUNDOS, QUANTIDADE_STREAMERS, logins=logins_monitorados)
                     except Exception as e:
                         print(f"⚠️ Erro ao atualizar descrição: {e}")
 
@@ -173,10 +174,6 @@ if __name__ == "__main__":
                 if INTERVALO_MENSAGEM_PROMOCIONAL > 0 and agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
                     enviar_mensagem_promocional()
                     estado["ultimo_envio_promocional"] = agora
-
-                if INTERVALO_MENSAGEM_HEADER > 0 and agora - estado["ultimo_envio_header"] >= INTERVALO_MENSAGEM_HEADER:
-                    enviar_header_streamers([s["display_name"] for s in top_streamers])
-                    estado["ultimo_envio_header"] = agora
 
                 if INTERVALO_ATUALIZACAO_STREAMERS > 0 and agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
                     enviar_mensagem_atualizacao_streamers(qtd=len(top_streamers))

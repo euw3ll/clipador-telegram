@@ -21,17 +21,28 @@ def enviar_mensagem(texto, botao_url=None, botao_texto=None, chat_id=TELEGRAM_CH
     r.raise_for_status()
 
 
-def atualizar_descricao_telegram(minimo_clipes, intervalo_segundos, quantidade_streamers, chat_id=TELEGRAM_CHAT_ID):
+def atualizar_descricao_telegram(minimo_clipes, intervalo_segundos, quantidade_streamers, logins=None, chat_id=TELEGRAM_CHAT_ID):
     global ultima_descricao
 
-    descricao_nova = (
-        f"😎 CLIPADOR ONLINE\n"
-        f"🇧🇷 Top {quantidade_streamers} streamers do Brasil\n"
-        f"🔥 {minimo_clipes}+ clipes em {intervalo_segundos}s = ENVIO"
+    # ⚙️ Cabeçalho da descrição
+    cabecalho = (
+        f"O CLIPADOR ESTÁ ONLINE 😎\n"
+        f"👀 Monitorando os {quantidade_streamers} streamers 🇧🇷 mais assistidos agora 👇"
     )
 
+    # Lista de logins (se houver)
+    lista = ""
+    if logins:
+        lista = "\n" + "\n".join([f"• @{login}" for login in logins])
+
+    # Critério
+    criterio = f"\n🔥 Critério: Grupo de {minimo_clipes} clipes em {intervalo_segundos}s"
+
+    # Junta tudo
+    descricao_nova = f"{cabecalho}{lista}{criterio}"
+
     if descricao_nova == ultima_descricao:
-        return  # 🔁 Já é igual, não envia
+        return
 
     print("🔍 Tentando atualizar descrição com o seguinte conteúdo:")
     print(repr(descricao_nova))
@@ -56,6 +67,7 @@ def atualizar_descricao_telegram(minimo_clipes, intervalo_segundos, quantidade_s
         print("✅ Descrição atualizada com sucesso.")
     except requests.exceptions.RequestException as e:
         print(f"⚠️ Erro ao atualizar descrição do canal: {e}")
+
 
 
 def enviar_mensagem_promocional(chat_id=TELEGRAM_CHAT_ID):
