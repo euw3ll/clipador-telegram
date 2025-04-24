@@ -1,6 +1,9 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao
+from io import BytesIO
+import base64
+
+from core.checkout import criar_pagamento_pix, criar_pagamento_cartao
 
 def obter_valor_plano(plano: str) -> float:
     return {
@@ -9,15 +12,20 @@ def obter_valor_plano(plano: str) -> float:
         "Anual Pro": 299.00
     }.get(plano, 0.0)
 
+# PIX
 async def gerar_pagamento_pix(update: Update, context: ContextTypes.DEFAULT_TYPE, plano_nome: str):
     query = update.callback_query
     await query.answer()
 
     try:
-        dados = await criar_pagamento_pix(
+        dados = criar_pagamento_pix(
             valor=obter_valor_plano(plano_nome),
             descricao=f"Assinatura Clipador - {plano_nome}"
         )
+
+        imagem_bytes = base64.b64decode(dados["imagem"])
+        imagem_io = BytesIO(imagem_bytes)
+        imagem_io.name = "qrcode.png"
 
         texto = (
             f"💸 *Pagamento via Pix gerado com sucesso!*\n\n"
@@ -27,33 +35,37 @@ async def gerar_pagamento_pix(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
         botoes = [
-            [InlineKeyboardButton("✅ Já paguei", callback_data="menu_0")],
+            [InlineKeyboardButton("✅ Já paguei", callback_data="menu_6")],
             [InlineKeyboardButton("🔁 Tentar novamente", callback_data=f"pagar_pix_{plano_nome.replace(' ', '_')}")],
             [InlineKeyboardButton("🔙 Voltar", callback_data="menu_3")]
         ]
 
+
         await query.message.reply_photo(
-            photo=f"data:image/png;base64,{dados['imagem']}",
+            photo=imagem_io,
             caption=texto + f"\n\n`{dados['qrcode']}`",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(botoes)
         )
 
     except Exception as e:
-        await query.edit_message_text(
+        await query.message.reply_text(
             text=f"❌ Erro ao gerar o pagamento via Pix.\n\n{str(e)}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔁 Tentar novamente", callback_data=f"pagar_pix_{plano_nome.replace(' ', '_')}")],
                 [InlineKeyboardButton("🔙 Voltar", callback_data="menu_3")]
-            ])
+            ]),
+            parse_mode="Markdown"
         )
 
+
+# CARTÃO
 async def gerar_pagamento_cartao(update: Update, context: ContextTypes.DEFAULT_TYPE, plano_nome: str):
     query = update.callback_query
     await query.answer()
 
     try:
-        link = await criar_pagamento_cartao(
+        link_checkout = criar_pagamento_cartao(
             valor=obter_valor_plano(plano_nome),
             descricao=f"Assinatura Clipador - {plano_nome}"
         )
@@ -66,7 +78,7 @@ async def gerar_pagamento_cartao(update: Update, context: ContextTypes.DEFAULT_T
         )
 
         botoes = [
-            [InlineKeyboardButton("💳 Pagar com Cartão", url=link)],
+            [InlineKeyboardButton("💳 Pagar com Cartão", url=link_checkout)],
             [InlineKeyboardButton("🔙 Voltar", callback_data="menu_3")]
         ]
 
@@ -74,13 +86,24 @@ async def gerar_pagamento_cartao(update: Update, context: ContextTypes.DEFAULT_T
 
     except Exception as e:
         await query.edit_message_text(
-            text=f"❌ Erro ao gerar pagamento com cartão.\n\n{str(e)}",
+            text="❌ Erro ao gerar pagamento com cartão. Deseja tentar novamente?",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔁 Tentar novamente", callback_data=f"pagar_cartao_{plano_nome.replace(' ', '_')}")],
                 [InlineKeyboardButton("🔙 Voltar", callback_data="menu_3")]
             ])
         )
 
+# RESPOSTAS MENU 5
+async def responder_menu_5_mensal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await exibir_opcoes_pagamento(update, "Mensal Solo")
+
+async def responder_menu_5_plus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await exibir_opcoes_pagamento(update, "Mensal Plus")
+
+async def responder_menu_5_anual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await exibir_opcoes_pagamento(update, "Anual Pro")
+
+# MENU: escolha entre Pix e Cartão
 async def exibir_opcoes_pagamento(update: Update, plano_nome: str):
     query = update.callback_query
     await query.answer()
@@ -99,18 +122,10 @@ async def exibir_opcoes_pagamento(update: Update, plano_nome: str):
 
     await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
-# Roteadores
-async def responder_menu_5_mensal(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await exibir_opcoes_pagamento(update, "Mensal Solo")
-
-async def responder_menu_5_plus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await exibir_opcoes_pagamento(update, "Mensal Plus")
-
-async def responder_menu_5_anual(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await exibir_opcoes_pagamento(update, "Anual Pro")
-
+# Roteador
 async def roteador_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     data = query.data
 
     if data.startswith("pagar_pix_"):

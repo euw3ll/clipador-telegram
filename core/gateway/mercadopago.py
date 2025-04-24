@@ -1,6 +1,7 @@
 import requests
 import uuid
 from core.ambiente import MERCADO_PAGO_ACCESS_TOKEN
+from configuracoes import TIPO_LOG
 
 MERCADO_PAGO_API = "https://api.mercadopago.com"
 
@@ -9,7 +10,16 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-def gerar_pagamento_pix(valor: float, descricao: str):
+def consultar_pagamento(id_pagamento: int) -> str:
+    url = f"{MERCADO_PAGO_API}/v1/payments/{id_pagamento}"
+    response = requests.get(url, headers=HEADERS)
+    data = response.json()
+    print("📦 CONSULTA PAGAMENTO:", data)
+    return data.get("status", "erro")
+
+def criar_pagamento_pix(valor: float, descricao: str):
+    idempotency_key = str(uuid.uuid4())
+
     payload = {
         "transaction_amount": valor,
         "description": descricao,
@@ -19,10 +29,20 @@ def gerar_pagamento_pix(valor: float, descricao: str):
         }
     }
 
-    response = requests.post(f"{MERCADO_PAGO_API}/v1/payments", json=payload, headers=HEADERS)
-    response.raise_for_status()
+    headers = {
+        **HEADERS,
+        "X-Idempotency-Key": idempotency_key
+    }
 
+    response = requests.post(f"{MERCADO_PAGO_API}/v1/payments", json=payload, headers=headers)
     data = response.json()
+
+    if TIPO_LOG == "DESENVOLVEDOR":
+        print("📦 RESPOSTA MP (PIX):", data)
+
+    if "point_of_interaction" not in data or "transaction_data" not in data["point_of_interaction"]:
+        raise Exception("A resposta do Mercado Pago não contém os dados do Pix (provavelmente falha na sandbox).")
+
     return {
         "valor": valor,
         "descricao": descricao,
@@ -31,16 +51,17 @@ def gerar_pagamento_pix(valor: float, descricao: str):
         "id_pagamento": data["id"]
     }
 
-def gerar_link_pagamento_cartao(valor: float, descricao: str):
-    payload = {
-        "title": descricao,
-        "quantity": 1,
-        "currency_id": "BRL",
-        "unit_price": valor
-    }
 
-    body = {
-        "items": [payload],
+def criar_pagamento_cartao(valor: float, descricao: str):
+    payload = {
+        "items": [
+            {
+                "title": descricao,
+                "quantity": 1,
+                "currency_id": "BRL",
+                "unit_price": valor
+            }
+        ],
         "payment_methods": {
             "excluded_payment_types": [{"id": "pix"}]
         },
@@ -52,7 +73,10 @@ def gerar_link_pagamento_cartao(valor: float, descricao: str):
         "auto_return": "approved"
     }
 
-    response = requests.post(f"{MERCADO_PAGO_API}/checkout/preferences", json=body, headers=HEADERS)
-    response.raise_for_status()
+    response = requests.post(f"{MERCADO_PAGO_API}/checkout/preferences", json=payload, headers=HEADERS)
+    data = response.json()
 
-    return response.json()["init_point"]
+    if TIPO_LOG == "DESENVOLVEDOR":
+        print("📦 RESPOSTA MP (CARTÃO):", data)
+
+    return data["init_point"]

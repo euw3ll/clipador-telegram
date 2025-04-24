@@ -24,47 +24,37 @@ def enviar_mensagem(texto, botao_url=None, botao_texto=None, chat_id=TELEGRAM_CH
 def atualizar_descricao_telegram(minimo_clipes, intervalo_segundos, quantidade_streamers, logins=None, chat_id=TELEGRAM_CHAT_ID):
     global ultima_descricao
 
-    # ⚙️ Cabeçalho da descrição
     cabecalho = (
         f"O CLIPADOR ESTÁ ONLINE 😎\n"
         f"👀 Monitorando os {quantidade_streamers} streamers 🇧🇷 mais assistidos agora 👇"
     )
 
-    # Lista de logins (se houver)
-    lista = ""
-    if logins:
-        lista = "\n" + "\n".join([f"• @{login}" for login in logins])
-
-    # Critério
+    lista = "\n" + "\n".join([f"• @{login}" for login in logins]) if logins else ""
     criterio = f"\n🔥 Critério: Grupo de {minimo_clipes} clipes em {intervalo_segundos}s"
 
-    # Junta tudo
     descricao_nova = f"{cabecalho}{lista}{criterio}"
 
     if descricao_nova == ultima_descricao:
+        # ✅ Descrição já está atualizada, não loga nada
         return
-
-    print("🔍 Tentando atualizar descrição com o seguinte conteúdo:")
-    print(repr(descricao_nova))
-    print(f"📏 Tamanho: {len(descricao_nova)} caracteres")
 
     if len(descricao_nova) > 255:
         descricao_nova = descricao_nova[:252] + "..."
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setChatDescription"
-    payload = {
-        "chat_id": chat_id,
-        "description": descricao_nova
-    }
-
     try:
-        response = requests.post(url, json=payload)
+        response = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setChatDescription",
+            json={"chat_id": chat_id, "description": descricao_nova}
+        )
+
         if response.status_code == 400 and "Bad Request" in response.text:
-            print("⚠️ Descrição já é igual ou erro de permissão. Ignorando.")
+            # ⚠️ Provavelmente descrição idêntica ou erro de permissão, ignora sem logar
             return
+
         response.raise_for_status()
         ultima_descricao = descricao_nova
-        print("✅ Descrição atualizada com sucesso.")
+        print("✅ Descrição do canal atualizada com sucesso.")
+
     except requests.exceptions.RequestException as e:
         print(f"⚠️ Erro ao atualizar descrição do canal: {e}")
 

@@ -11,7 +11,8 @@ EXCLUIR_PASTAS = {
     "site-packages",
     "dist",
     "build",
-    "banco",  # se quiser ignorar o banco
+    "banco",
+    "exportar_projeto.py"
 }
 
 saida = []
