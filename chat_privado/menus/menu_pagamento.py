@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import ContextTypes
-from core.checkout import gerar_pagamento_pix, gerar_link_pagamento_cartao
+from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao
 
 def obter_valor_plano(plano: str) -> float:
     return {
@@ -14,7 +14,7 @@ async def gerar_pagamento_pix(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
 
     try:
-        dados = gerar_pagamento_pix(
+        dados = await criar_pagamento_pix(
             valor=obter_valor_plano(plano_nome),
             descricao=f"Assinatura Clipador - {plano_nome}"
         )
@@ -53,7 +53,7 @@ async def gerar_pagamento_cartao(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     try:
-        link = gerar_link_pagamento_cartao(
+        link = await criar_pagamento_cartao(
             valor=obter_valor_plano(plano_nome),
             descricao=f"Assinatura Clipador - {plano_nome}"
         )
