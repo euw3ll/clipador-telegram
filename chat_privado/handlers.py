@@ -11,7 +11,6 @@ from chat_privado.menus.menu_callback import (
     responder_menu_4_mensal,
     responder_menu_4_plus,
     responder_menu_4_anual,
-    responder_menu_6_confirmar
 )
 from chat_privado.menus.menu_comandos import responder_help
 
@@ -49,5 +48,3 @@ def registrar_handlers(application):
     application.add_handler(CallbackQueryHandler(responder_menu_5_plus, pattern="^menu_5_plus$"))
     application.add_handler(CallbackQueryHandler(responder_menu_5_anual, pattern="^menu_5_anual$"))
     application.add_handler(CallbackQueryHandler(roteador_pagamento, pattern="^pagar_.*$"))
-
-    application.add_handler(CallbackQueryHandler(responder_menu_6_confirmar, pattern="^menu_6$"))

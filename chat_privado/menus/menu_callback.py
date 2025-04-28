@@ -1,32 +1,23 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from core.checkout import consultar_pagamento
-from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
 
-from telegram.error import BadRequest
-
-
-# menu_0 → Menu inicial
+# menu_0 → Menu principal
 async def responder_menu_0(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
+    
     texto = (
-        "👋 *Seja bem-vindo ao Clipador!*\n\n"
-        "O Clipador é um bot que monitora streamers e envia os melhores momentos automaticamente.\n\n"
-        "Escolha uma opção para continuar:"
+        "🎯 *Bem-vindo ao Clipador!*\n\n"
+        "Receba automaticamente os melhores momentos das lives direto no seu Telegram.\n\n"
+        "Selecione abaixo como deseja começar:"
     )
 
     botoes = [
         [InlineKeyboardButton("📚 Como funciona", callback_data="menu_1")],
-        [InlineKeyboardButton("💰 Planos", callback_data="menu_3")],
-        [InlineKeyboardButton("🚀 Assinar", callback_data="menu_3")]
+        [InlineKeyboardButton("💸 Planos", callback_data="menu_2")],
+        [InlineKeyboardButton("📝 Assinar agora", callback_data="menu_3")],
     ]
-
-    try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-    except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
 # menu_1 → Como funciona
@@ -53,11 +44,8 @@ async def responder_menu_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("💸 Ver planos", callback_data="menu_2")],
         [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")],
     ]
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
-    try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-    except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 # menu_2 → Planos disponíveis
 async def responder_menu_2(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -87,7 +75,7 @@ async def responder_menu_2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
-# menu_3 → Lista de Planos
+# menu_3 → Assinar (escolher plano)
 async def responder_menu_3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -115,132 +103,85 @@ async def responder_menu_3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
     ]
 
-    try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-    except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
-# menu_4 → Resumo plano Mensal Solo
+# menu_4 → Planos (resumo + confirmar)
 async def responder_menu_4_mensal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     texto = (
-        "*📝 RESUMO DO PLANO MENSAL SOLO*\n\n"
+        "📦 *RESUMO DO PLANO MENSAL SOLO*\n\n"
         "💰 R$ 29,90/mês\n"
         "🔹 1 streamer monitorado\n"
-        "🔄 Troca de streamer 1x por mês\n"
+        "🔁 Troca de streamer 1x por mês\n"
         "➕ Máximo 1 slot adicional (R$14,90 fixo)\n"
         "📅 Renovação mensal\n\n"
         "Deseja continuar com esse plano?"
     )
 
     botoes = [
-        [InlineKeyboardButton("✅ Escolher este plano", callback_data="menu_5_mensal")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_3")]
+        [InlineKeyboardButton("✅ Confirmar assinatura", callback_data="menu_5_mensal")],
+        [InlineKeyboardButton("🔙 Voltar para planos", callback_data="menu_3")],
     ]
-
-    try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-    except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
-# menu_4 → Resumo plano Mensal Plus
 async def responder_menu_4_plus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     texto = (
-        "*📝 RESUMO DO PLANO MENSAL PLUS*\n\n"
+        "📦 *RESUMO DO PLANO MENSAL PLUS*\n\n"
         "💰 R$ 49,90/mês\n"
         "🔹 Até 3 streamers monitorados\n"
-        "📦 Ideal para agências/clippers\n"
+        "🎯 Ideal para clippers e agências\n"
         "➕ Até 3 slots adicionais (R$9,90 cada)\n"
         "📅 Renovação mensal\n\n"
         "Deseja continuar com esse plano?"
     )
 
     botoes = [
-        [InlineKeyboardButton("✅ Escolher este plano", callback_data="menu_5_plus")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_3")]
+        [InlineKeyboardButton("✅ Confirmar assinatura", callback_data="menu_5_plus")],
+        [InlineKeyboardButton("🔙 Voltar para planos", callback_data="menu_3")],
     ]
-
-    try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-    except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
-# menu_4 → Resumo plano Anual Pro
 async def responder_menu_4_anual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     texto = (
-        "*📝 RESUMO DO PLANO ANUAL PRO*\n\n"
+        "📦 *RESUMO DO PLANO ANUAL PRO*\n\n"
         "💰 R$ 299,00/ano\n"
-        "🔹 3 streamers monitorados + 1 slot bônus\n"
-        "🎁 Economia de 2 meses\n"
+        "🔹 Até 3 streamers monitorados\n"
+        "🎁 1 slot extra incluso\n"
         "➕ Até 5 slots adicionais (R$7,90 cada)\n"
-        "📅 Renovação anual\n\n"
+        "📅 Economia de 2 meses\n\n"
         "Deseja continuar com esse plano?"
     )
 
     botoes = [
-        [InlineKeyboardButton("✅ Escolher este plano", callback_data="menu_5_anual")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_3")]
+        [InlineKeyboardButton("✅ Confirmar assinatura", callback_data="menu_5_anual")],
+        [InlineKeyboardButton("🔙 Voltar para planos", callback_data="menu_3")],
     ]
-
-    try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-    except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 
-# menu_6 → Confirmação de pagamento
-from core.checkout import consultar_pagamento
-from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
-
-
-async def responder_menu_6_confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# menu_5 → Pagamento (temporário)
+async def responder_menu_5(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    pagamento_id = context.user_data.get("id_pagamento")
+    texto = (
+        "💰 *PAGAMENTO EM CONSTRUÇÃO*\n\n"
+        "Em breve você poderá concluir o pagamento aqui mesmo pelo bot.\n"
+        "Enquanto isso, estamos finalizando os últimos ajustes 😉"
+    )
 
-    if not pagamento_id:
-        await query.edit_message_text(
-            "❌ Nenhum pagamento encontrado.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔁 Voltar ao início", callback_data="menu_0")]
-            ]),
-            parse_mode="Markdown"
-        )
-        return
-
-    status = consultar_pagamento(pagamento_id)
-
-    if status == "approved":
-        await query.edit_message_text("✅ Pagamento confirmado! Vamos configurar seu canal...")
-        await menu_configurar_canal(update, context)
-
-    elif status == "pending":
-        await query.edit_message_text(
-            "⏳ O pagamento ainda não foi identificado.\n"
-            "Isso pode levar alguns minutos, tente novamente em instantes.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔁 Verificar novamente", callback_data="menu_6")],
-                [InlineKeyboardButton("🔙 Voltar ao início", callback_data="menu_0")]
-            ]),
-            parse_mode="Markdown"
-        )
-    else:
-        await query.edit_message_text(
-            f"❌ Ocorreu um erro ao consultar o pagamento (status: {status})",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔁 Tentar novamente", callback_data="menu_0")]
-            ]),
-            parse_mode="Markdown"
-        )
+    botoes = [
+        [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")],
+    ]
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")

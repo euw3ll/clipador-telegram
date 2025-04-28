@@ -3,7 +3,7 @@ from telegram.ext import ContextTypes
 from io import BytesIO
 import base64
 
-from core.checkout import criar_pagamento_pix, criar_pagamento_cartao
+from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao
 
 def obter_valor_plano(plano: str) -> float:
     return {
