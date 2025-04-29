@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
@@ -7,7 +9,6 @@ def webhook_kirvano():
     data = request.json
     print("📬 Webhook recebido:", data)
 
-    # Aqui você pode tratar o pagamento recebido
     if data.get('payment_status') == 'paid':
         pagamento_id = data.get('payment_id')
         email_cliente = data.get('customer_email')
@@ -16,4 +17,5 @@ def webhook_kirvano():
     return jsonify({"ok": True}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    port = int(os.environ.get("PORT", 5000))  # <- Aqui a mágica
+    app.run(host='0.0.0.0', port=port)
