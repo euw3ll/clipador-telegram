@@ -1,6 +1,5 @@
 import os
 import time
-
 from datetime import datetime, timezone
 
 from memoria.estado import carregar_estado, salvar_estado
@@ -48,15 +47,8 @@ if __name__ == "__main__":
         print("🔌 Conectando à Twitch API...")
 
     twitch = TwitchAPI()
-    logins = twitch.get_top_streamers_brasil(quantidade=QUANTIDADE_STREAMERS)
-    top_streamers = [twitch.get_user_info(login) for login in logins if twitch.get_user_info(login)]
-
-    if not top_streamers:
-        print("❌ Nenhum streamer encontrado.")
-        exit()
 
     if TIPO_LOG == "DESENVOLVEDOR":
-        print("✅ Streamers conectados:", ", ".join([s["display_name"] for s in top_streamers]))
         print("📂 Carregando estado do bot...")
 
     estado = carregar_estado()
@@ -65,21 +57,6 @@ if __name__ == "__main__":
     estado.setdefault("ultimo_envio_header", 0)
     estado.setdefault("ultimo_envio_atualizacao_streamers", 0)
     estado.setdefault("grupos_enviados", [])
-
-    ultima_execucao = estado["ultima_execucao"]
-    if ultima_execucao:
-        delta = datetime.now(timezone.utc) - datetime.fromisoformat(ultima_execucao)
-        if delta.total_seconds() > TEMPO_CONSIDERADO_OFFLINE:
-            started_at = get_time_minutes_ago(INTERVALO_ANALISE_MINUTOS)
-        else:
-            started_at = (
-                datetime.fromisoformat(ultima_execucao)
-                .replace(microsecond=0)
-                .isoformat()
-                .replace("+00:00", "Z")
-            )
-    else:
-        started_at = get_time_minutes_ago(INTERVALO_ANALISE_MINUTOS)
 
     try:
         while True:
@@ -90,6 +67,21 @@ if __name__ == "__main__":
             total_clipes = 0
             minimo_clipes_global = 0
 
+            # 🆕 ATUALIZAR A LISTA DE STREAMERS A CADA CICLO
+            logins = twitch.get_top_streamers_brasil(quantidade=QUANTIDADE_STREAMERS)
+            top_streamers = [twitch.get_user_info(login) for login in logins if twitch.get_user_info(login)]
+
+            if not top_streamers:
+                print("❌ Nenhum streamer encontrado no momento.")
+                time.sleep(INTERVALO_MONITORAMENTO)
+                continue
+
+            if TIPO_LOG == "DESENVOLVEDOR":
+                print("🔄 Lista de streamers atualizada:", ", ".join([s["display_name"] for s in top_streamers]))
+
+            # Correção: buscar clipes retroativos de 5 minutos
+            tempo_inicio = get_time_minutes_ago(minutes=5)
+
             for streamer in top_streamers:
                 user_id = streamer["id"]
                 display_name = streamer["display_name"]
@@ -97,7 +89,7 @@ if __name__ == "__main__":
                 if TIPO_LOG == "DESENVOLVEDOR":
                     print(f"🎥 Buscando clipes de @{display_name}...")
 
-                clipes = twitch.get_recent_clips(user_id, started_at)
+                clipes = twitch.get_recent_clips(user_id, started_at=tempo_inicio)
                 total_clipes += len(clipes)
                 clipes_novos = []
                 for c in clipes:
@@ -208,4 +200,3 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"⚠️ Erro ao atualizar descrição OFFLINE: {e}")
         salvar_estado(estado)
-
