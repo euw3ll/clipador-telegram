@@ -1,7 +1,8 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
+from telegram.constants import ParseMode
 from core.pagamento import consultar_pagamento
-from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
+from chat_privado.menus.menu_configurar_canal import menu_configurar_canal, responder_menu_7_configurar
 
 from telegram.error import BadRequest
 
@@ -24,9 +25,9 @@ async def responder_menu_0(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
     except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
 
 
 # menu_1 → Como funciona
@@ -55,9 +56,9 @@ async def responder_menu_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
     except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
 
 # menu_2 → Planos disponíveis
 async def responder_menu_2(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,7 +85,7 @@ async def responder_menu_2(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📝 Quero assinar", callback_data="menu_3")],
         [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")],
     ]
-    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
 
 
 # menu_3 → Lista de Planos
@@ -116,9 +117,9 @@ async def responder_menu_3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
 
     try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
     except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
 
 
 # menu_4 → Resumo plano Mensal Solo
@@ -142,9 +143,9 @@ async def responder_menu_4_mensal(update: Update, context: ContextTypes.DEFAULT_
     ]
 
     try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
     except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
 
 
 # menu_4 → Resumo plano Mensal Plus
@@ -168,9 +169,9 @@ async def responder_menu_4_plus(update: Update, context: ContextTypes.DEFAULT_TY
     ]
 
     try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
     except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
 
 
 # menu_4 → Resumo plano Anual Pro
@@ -194,9 +195,9 @@ async def responder_menu_4_anual(update: Update, context: ContextTypes.DEFAULT_T
     ]
 
     try:
-        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
     except BadRequest:
-        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
 
 
 # menu_6 → Confirmação de pagamento
@@ -216,7 +217,7 @@ async def responder_menu_6_confirmar(update: Update, context: ContextTypes.DEFAU
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔁 Voltar ao início", callback_data="menu_0")]
             ]),
-            parse_mode="Markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
         return
 
@@ -234,7 +235,7 @@ async def responder_menu_6_confirmar(update: Update, context: ContextTypes.DEFAU
                 [InlineKeyboardButton("🔁 Verificar novamente", callback_data="menu_6")],
                 [InlineKeyboardButton("🔙 Voltar ao início", callback_data="menu_0")]
             ]),
-            parse_mode="Markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
     else:
         await query.edit_message_text(
@@ -242,5 +243,20 @@ async def responder_menu_6_confirmar(update: Update, context: ContextTypes.DEFAU
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔁 Tentar novamente", callback_data="menu_0")]
             ]),
-            parse_mode="Markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
+
+async def responder_menu_7_configurar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    texto = "🔧 Vamos começar a configuração do seu canal personalizado."
+    botoes = [
+        [InlineKeyboardButton("➡️ Continuar", callback_data="iniciar_envio_twitch")],
+        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_0")]
+    ]
+
+    try:
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes))
+    except BadRequest:
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes))

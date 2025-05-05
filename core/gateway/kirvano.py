@@ -1,65 +1,37 @@
-import requests
-import uuid
-from core.ambiente import KIRVANO_API_KEY
+from core.database import (
+    buscar_telegram_por_email,
+    is_usuario_admin,
+    buscar_compra_aprovada_por_email,
+    registrar_log_pagamento
+)
 
-KIRVANO_API = "https://api.kirvano.com/api/v1"
-HEADERS = {
-    "Authorization": f"Bearer {KIRVANO_API_KEY}",
-    "Content-Type": "application/json"
-}
+def verificar_pagamento_email(email: str, telegram_id: int) -> tuple:
+    """Verifica se o e-mail está vinculado a uma compra aprovada e se o usuário pode ser ativado."""
+    ja_usado = buscar_telegram_por_email(email)
+    if ja_usado and ja_usado != telegram_id:
+        registrar_log_pagamento({"erro": "email_duplicado", "email": email, "telegram_id": telegram_id})
+        return "duplicado", None
 
+    compra = buscar_compra_aprovada_por_email(email)
+    if not compra:
+        registrar_log_pagamento({"erro": "email_sem_compra", "email": email, "telegram_id": telegram_id})
+        return "pendente", None
 
-def criar_pagamento_pix(valor: float, descricao: str):
-    payload = {
-        "name": descricao,
-        "price": valor,
-        "payment_type": "pix",
-        "integration": "telegram"
-    }
+    if compra["payment_method"] == "FREE" and not is_usuario_admin(telegram_id):
+        registrar_log_pagamento({"erro": "free_mas_nao_admin", "email": email, "telegram_id": telegram_id})
+        return "pendente", None
 
-    response = requests.post(f"{KIRVANO_API}/charges", json=payload, headers=HEADERS)
-    data = response.json()
+    registrar_log_pagamento({
+        "status": "compra_aprovada",
+        "email": email,
+        "telegram_id": telegram_id,
+        "plano": compra["plano_assinado"]
+    })
+    return "approved", compra["plano_assinado"]
 
-    if not data.get("success"):
-        raise Exception("Erro ao gerar pagamento Pix com a Kirvano")
-
-    return {
-        "valor": valor,
-        "descricao": descricao,
-        "qrcode": data["charge"]["pix"]["payload"],
-        "imagem": None,  # Kirvano ainda não fornece base64 da imagem
-        "id_pagamento": data["charge"]["id"]
-    }
-
-
-def criar_pagamento_cartao(valor: float, descricao: str):
-    payload = {
-        "name": descricao,
-        "price": valor,
-        "payment_type": "credit",
-        "integration": "telegram"
-    }
-
-    response = requests.post(f"{KIRVANO_API}/charges", json=payload, headers=HEADERS)
-    data = response.json()
-
-    if not data.get("success"):
-        raise Exception("Erro ao gerar pagamento com cartão pela Kirvano")
-
-    return data["charge"]["checkout_url"]
-
-
-def consultar_pagamento(id_pagamento: int) -> str:
-    response = requests.get(f"{KIRVANO_API}/charges/{id_pagamento}", headers=HEADERS)
-    data = response.json()
-
-    if not data.get("success"):
-        return "erro"
-
-    status = data["charge"]["status"]
-    if status == "paid":
-        return "approved"
-    elif status == "waiting_payment":
-        return "pending"
-    else:
-        return status
+def verificar_pagamento_email_e_registrar(email: str, telegram_id: int):
+    status, plano = verificar_pagamento_email(email, telegram_id)
+    if status == "approved" and plano:
+        from core.database import registrar_compra_kirvano
+        registrar_compra_kirvano(email, plano)
+    return status, plano

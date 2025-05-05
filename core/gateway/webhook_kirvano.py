@@ -1,21 +1,66 @@
+import sys
 import os
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+import os
 from flask import Flask, request, jsonify
+from core.database import registrar_compra, atualizar_status_compra, buscar_telegram_por_email, ativar_usuario_por_telegram_id, salvar_plano_usuario, eh_admin
 
 app = Flask(__name__)
 
-@app.route('/webhook-kirvano', methods=['POST'])
+WEBHOOK_TOKEN = "clipador2024secure"
+
+@app.route("/webhook-kirvano", methods=["POST"])
 def webhook_kirvano():
+    token = request.headers.get("X-Kirvano-Token")
+    if token != WEBHOOK_TOKEN:
+        print("🔒 Token inválido recebido no webhook.")
+        return jsonify({"error": "unauthorized"}), 403
+
     data = request.json
+    sale_id = data.get("sale_id")
+    data_criacao = data.get("created_at")
+    metodo_pagamento = data.get("payment_method")
     print("📬 Webhook recebido:", data)
 
-    if data.get('payment_status') == 'paid':
-        pagamento_id = data.get('payment_id')
-        email_cliente = data.get('customer_email')
-        print(f"✅ Pagamento confirmado para {email_cliente} (ID: {pagamento_id})")
+    status = data.get("status")
+    metodo = data.get("payment_method")
+    email = data.get("customer", {}).get("email")
+    nome_plano = data.get("plan", {}).get("name", "Plano desconhecido")
+
+    if not email:
+        print("⚠️ Nenhum e-mail recebido.")
+        return jsonify({"error": "email ausente"}), 400
+
+    telegram_id = buscar_telegram_por_email(email)
+    if not telegram_id:
+        print(f"⚠️ Nenhum usuário encontrado para o e-mail: {email}")
+        return jsonify({"error": "usuario nao encontrado"}), 404
+
+    if status == "APPROVED":
+        if metodo_pagamento == "FREE" and not eh_admin(telegram_id):
+            print(f"❌ Acesso negado: produto gratuito disponível apenas para administradores.")
+            return jsonify({"error": "produto gratuito é exclusivo para administradores"}), 403
+
+        registrar_compra(
+            telegram_id=telegram_id,
+            email=email,
+            plano=nome_plano,
+            metodo_pagamento=metodo_pagamento,
+            status=status,
+            sale_id=sale_id,
+            data_criacao=data_criacao
+        )
+
+        ativar_usuario_por_telegram_id(telegram_id)
+        salvar_plano_usuario(telegram_id, nome_plano)
+        print(f"✅ Usuário {telegram_id} ativado com plano: {nome_plano}")
+
+    elif status in ["REFUNDED", "EXPIRED", "CHARGEBACK"]:
+        atualizar_status_compra(sale_id, status)
+        print(f"⚠️ Pagamento não válido. Status: {status}")
 
     return jsonify({"ok": True}), 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # <- Aqui a mágica
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

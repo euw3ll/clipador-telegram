@@ -1,8 +1,14 @@
-from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
+
+from chat_privado.menus.menu_configurar_canal import (
+    configurar_canal_conversa
+)
 
 # Menus principais
 from chat_privado.menus.menu_inicial import responder_inicio
+from chat_privado.menus.menu_comandos import responder_help
 
+# Menus interativos
 from chat_privado.menus.menu_callback import (
     responder_menu_0,
     responder_menu_1,
@@ -11,43 +17,67 @@ from chat_privado.menus.menu_callback import (
     responder_menu_4_mensal,
     responder_menu_4_plus,
     responder_menu_4_anual,
-    responder_menu_6_confirmar
+    responder_menu_6_confirmar,
+    responder_menu_7_configurar
 )
-from chat_privado.menus.menu_comandos import responder_help
 
 # Menus de pagamento
+from chat_privado.menus import menu_pagamento
 from chat_privado.menus.menu_pagamento import (
     responder_menu_5_mensal,
     responder_menu_5_plus,
     responder_menu_5_anual,
-    roteador_pagamento
+    roteador_pagamento,
+    responder_menu_6,
+    PEDIR_EMAIL,
+    receber_email
 )
 
 def registrar_handlers(application):
-    # 🟢 Mensagem inicial e texto comum
+    # 🟢 Mensagem inicial e comandos
     application.add_handler(CommandHandler("start", responder_inicio))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder_inicio))
+    application.add_handler(CommandHandler("help", responder_help))
 
     # 🧭 Comandos diretos equivalentes aos botões
     application.add_handler(CommandHandler("menu", responder_menu_0))
     application.add_handler(CommandHandler("como_funciona", responder_menu_1))
     application.add_handler(CommandHandler("planos", responder_menu_2))
     application.add_handler(CommandHandler("assinar", responder_menu_3))
-    application.add_handler(CommandHandler("help", responder_help))
 
     # 📋 Menus interativos via Callback
     application.add_handler(CallbackQueryHandler(responder_menu_0, pattern="^menu_0$"))
     application.add_handler(CallbackQueryHandler(responder_menu_1, pattern="^menu_1$"))
     application.add_handler(CallbackQueryHandler(responder_menu_2, pattern="^menu_2$"))
     application.add_handler(CallbackQueryHandler(responder_menu_3, pattern="^menu_3$"))
+
+    # Menu 4 – Escolha de plano
     application.add_handler(CallbackQueryHandler(responder_menu_4_mensal, pattern="^menu_4_mensal$"))
     application.add_handler(CallbackQueryHandler(responder_menu_4_plus, pattern="^menu_4_plus$"))
     application.add_handler(CallbackQueryHandler(responder_menu_4_anual, pattern="^menu_4_anual$"))
 
-    # 💳 Geração de pagamento Pix ou Cartão
+    # Menu 5 – Pagamento
     application.add_handler(CallbackQueryHandler(responder_menu_5_mensal, pattern="^menu_5_mensal$"))
     application.add_handler(CallbackQueryHandler(responder_menu_5_plus, pattern="^menu_5_plus$"))
     application.add_handler(CallbackQueryHandler(responder_menu_5_anual, pattern="^menu_5_anual$"))
     application.add_handler(CallbackQueryHandler(roteador_pagamento, pattern="^pagar_.*$"))
 
-    application.add_handler(CallbackQueryHandler(responder_menu_6_confirmar, pattern="^menu_6$"))
+    # Menu 6 – Já paguei
+    application.add_handler(CallbackQueryHandler(responder_menu_6_confirmar, pattern="^menu_6_confirmar$"))
+
+    # Menu 7 – Configuração do canal
+    application.add_handler(CallbackQueryHandler(responder_menu_7_configurar, pattern="^menu_7_configurar$"))
+
+    # Conversa para receber o e-mail do cliente
+    application.add_handler(
+        ConversationHandler(
+            entry_points=[CallbackQueryHandler(responder_menu_6, pattern="^menu_6$")],
+            states={PEDIR_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_email)]},
+            fallbacks=[MessageHandler(filters.ALL, receber_email)],
+        )
+    )
+
+    # Tratamento direto para "Tentar novamente" no menu_6 após erro
+    application.add_handler(CallbackQueryHandler(responder_menu_6, pattern="^menu_6$"))
+
+    # Conversa para configuração do canal após pagamento validado
+    application.add_handler(configurar_canal_conversa())
