@@ -18,6 +18,8 @@ WEBHOOK_TOKEN = "clipador2024secure"
 
 @app.route("/webhook-kirvano", methods=["POST"])
 def webhook_kirvano():
+    print("📩 Headers recebidos:")
+    print(dict(request.headers))
     token = request.headers.get("X-Kirvano-Token")
     if token != WEBHOOK_TOKEN:
         print("🔒 Token inválido recebido no webhook.")
