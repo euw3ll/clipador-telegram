@@ -3,7 +3,14 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 import os
 from flask import Flask, request, jsonify
-from core.database import registrar_compra, atualizar_status_compra, buscar_telegram_por_email, ativar_usuario_por_telegram_id, salvar_plano_usuario, eh_admin
+from core.database import (
+    atualizar_status_compra,
+    buscar_telegram_por_email,
+    ativar_usuario_por_telegram_id,
+    salvar_plano_usuario,
+    eh_admin,
+    registrar_compra  # corrigido o nome da função
+)
 
 app = Flask(__name__)
 
