@@ -9,7 +9,7 @@ from core.database import (
     ativar_usuario_por_telegram_id,
     salvar_plano_usuario,
     eh_admin,
-    registrar_compra  # corrigido o nome da função
+    registrar_compra
 )
 
 app = Flask(__name__)
@@ -33,15 +33,19 @@ def webhook_kirvano():
     print("📬 Webhook recebido:", data)
 
     status = data.get("status")
-    metodo = data.get("payment_method")
-    email = data.get("customer", {}).get("email")
-    nome_plano = data.get("plan", {}).get("name", "Plano desconhecido")
+    email = data.get("contactEmail") or data.get("customer", {}).get("email")
+
+    produtos = data.get("products", [])
+    nome_plano = produtos[0].get("offer_name") if produtos else "Plano desconhecido"
+    offer_id = produtos[0].get("offer_id") if produtos else None
 
     if not email:
         print("⚠️ Nenhum e-mail recebido.")
         return jsonify({"error": "email ausente"}), 400
 
-    telegram_id = buscar_telegram_por_email(email)
+    print(f"🔍 Procurando usuário com e-mail: {email}")
+    telegram_id = buscar_telegram_por_email(email.strip().lower())
+    print(f"📢 Resultado da busca: {telegram_id}")
     if not telegram_id:
         print(f"⚠️ Nenhum usuário encontrado para o e-mail: {email}")
         return jsonify({"error": "usuario nao encontrado"}), 404
@@ -58,7 +62,8 @@ def webhook_kirvano():
             metodo_pagamento=metodo_pagamento,
             status=status,
             sale_id=sale_id,
-            data_criacao=data_criacao
+            data_criacao=data_criacao,
+            offer_id=offer_id
         )
 
         ativar_usuario_por_telegram_id(telegram_id)
@@ -76,5 +81,5 @@ def index():
     return "✅ Webhook Kirvano ativo!", 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)

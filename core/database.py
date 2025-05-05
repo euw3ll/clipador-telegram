@@ -92,7 +92,7 @@ def salvar_email_usuario(telegram_id, email):
 def buscar_telegram_por_email(email):
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM usuarios WHERE email = ?", (email,))
+    cursor.execute("SELECT id FROM usuarios WHERE LOWER(email) = ?", (email.strip().lower(),))
     resultado = cursor.fetchone()
     conn.close()
     return resultado[0] if resultado else None
@@ -166,15 +166,17 @@ def criar_tabela_compras():
     conn.commit()
     conn.close()
 
-def registrar_compra(email, plano, status="aprovado"):
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO compras (email, plano, status) VALUES (?, ?, ?)",
-        (email, plano, status)
-    )
-    conn.commit()
-    conn.close()
+def registrar_compra(telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id):
+    conexao = sqlite3.connect("banco/clipador.db")
+    cursor = conexao.cursor()
+
+    cursor.execute("""
+        INSERT INTO compras (telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id))
+
+    conexao.commit()
+    conexao.close()
 
 def compra_aprovada(email):
     conn = conectar()
@@ -209,7 +211,8 @@ def atualizar_status_compra(email, novo_status):
     conn.close()
 
 
-# Certifique-se de criar a tabela ao iniciar o projeto
+# Certifique-se de criar as tabelas ao iniciar o projeto
+criar_tabelas()
 criar_tabela_compras()
 
 
