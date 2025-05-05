@@ -20,13 +20,8 @@ WEBHOOK_TOKEN = "clipador2024secure"
 def webhook_kirvano():
     headers_recebidos = dict(request.headers)
     print("📩 Headers recebidos:", headers_recebidos)
-
-    token = headers_recebidos.get("X-Kirvano-Token")
-    if token != WEBHOOK_TOKEN:
-        print("🔒 Token inválido recebido no webhook.")
-        return jsonify({"error": "unauthorized"}), 403
-
     data = request.json
+    # Token não é enviado em produção pela Kirvano, então a verificação foi removida.
     sale_id = data.get("sale_id")
     data_criacao = data.get("created_at")
     metodo_pagamento = data.get("payment_method")
