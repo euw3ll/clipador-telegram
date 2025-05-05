@@ -29,7 +29,7 @@ def webhook_kirvano():
     data_criacao = data.get("created_at")
     metodo_pagamento = data.get("payment_method") or data.get("payment", {}).get("method")
     status = data.get("status")
-    email = data.get("contactEmail") or data.get("customer", {}).get("email")
+    email = data.get("customer", {}).get("email") or data.get("contactEmail")
 
     produtos = data.get("products", [])
     nome_plano = produtos[0].get("offer_name") if produtos else "Plano desconhecido"
