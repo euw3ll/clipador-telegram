@@ -47,9 +47,13 @@ def webhook_kirvano():
         return jsonify({"error": "usuario nao encontrado"}), 404
 
     if status == "APPROVED":
-        if metodo_pagamento == "FREE" and not eh_admin(telegram_id):
+        print(f"🔎 Verificando se {telegram_id} é admin...")
+        resultado_admin = eh_admin(telegram_id)
+        print(f"Resultado de eh_admin: {resultado_admin}")
+        if metodo_pagamento == "FREE" and not resultado_admin:
             print(f"❌ Acesso negado: produto gratuito disponível apenas para administradores.")
             return jsonify({"error": "produto gratuito é exclusivo para administradores"}), 403
+        # linha substituída acima pela verificação com logs
 
         registrar_compra(
             telegram_id=telegram_id,
