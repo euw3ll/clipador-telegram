@@ -20,7 +20,7 @@ def webhook_kirvano():
     data = request.json
     print("📬 Webhook recebido:", data)
 
-    token = data.get("token")
+    token = headers_recebidos.get("Security-Token")
     if token != WEBHOOK_TOKEN:
         print("🔒 Token inválido recebido no webhook.")
         return jsonify({"error": "unauthorized"}), 403
