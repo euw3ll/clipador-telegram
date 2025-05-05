@@ -18,9 +18,10 @@ WEBHOOK_TOKEN = "clipador2024secure"
 
 @app.route("/webhook-kirvano", methods=["POST"])
 def webhook_kirvano():
-    print("📩 Headers recebidos:")
-    print(dict(request.headers))
-    token = request.headers.get("X-Kirvano-Token")
+    headers_recebidos = dict(request.headers)
+    print("📩 Headers recebidos:", headers_recebidos)
+
+    token = headers_recebidos.get("X-Kirvano-Token")
     if token != WEBHOOK_TOKEN:
         print("🔒 Token inválido recebido no webhook.")
         return jsonify({"error": "unauthorized"}), 403
