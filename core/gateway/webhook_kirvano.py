@@ -9,6 +9,12 @@ from core.database import (
     eh_admin,
     registrar_compra
 )
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 app = Flask(__name__)
 WEBHOOK_TOKEN = "clipador2024secure"
@@ -16,15 +22,15 @@ WEBHOOK_TOKEN = "clipador2024secure"
 @app.route("/webhook-kirvano", methods=["POST"])
 def webhook_kirvano():
     try:
-        print("⚙️ Início do processamento do webhook Kirvano")
+        logging.info("⚙️ Início do processamento do webhook Kirvano")
         headers_recebidos = dict(request.headers)
-        print("📩 Headers recebidos:", headers_recebidos)
+        logging.info(f"📩 Headers recebidos: {headers_recebidos}")
         data = request.json
-        print("📬 Webhook recebido:", data)
+        logging.info(f"📬 Webhook recebido: {data}")
 
         token = headers_recebidos.get("Security-Token")
         if token != WEBHOOK_TOKEN:
-            print("🔒 Token inválido recebido no webhook.")
+            logging.warning("🔒 Token inválido recebido no webhook.")
             return jsonify({"error": "unauthorized"}), 403
 
         sale_id = data.get("sale_id")
@@ -38,22 +44,22 @@ def webhook_kirvano():
         offer_id = produtos[0].get("offer_id") if produtos else None
 
         if not email:
-            print("⚠️ Nenhum e-mail recebido.")
+            logging.warning("⚠️ Nenhum e-mail recebido.")
             return jsonify({"error": "email ausente"}), 400
 
-        print(f"🔍 Procurando usuário com e-mail: {email}")
+        logging.info(f"🔍 Procurando usuário com e-mail: {email}")
         telegram_id = buscar_telegram_por_email(email.strip().lower())
-        print(f"📢 Resultado da busca: {telegram_id}")
+        logging.info(f"📢 Resultado da busca: {telegram_id}")
         if not telegram_id:
-            print(f"⚠️ Nenhum usuário encontrado para o e-mail: {email}")
+            logging.warning(f"⚠️ Nenhum usuário encontrado para o e-mail: {email}")
             return jsonify({"error": "usuario nao encontrado"}), 404
 
         if status == "APPROVED":
-            print(f"🔎 Verificando se {telegram_id} é admin...")
+            logging.info(f"🔎 Verificando se {telegram_id} é admin...")
             resultado_admin = eh_admin(telegram_id)
-            print(f"Resultado de eh_admin: {resultado_admin}")
+            logging.info(f"Resultado de eh_admin: {resultado_admin}")
             if metodo_pagamento == "FREE" and not resultado_admin:
-                print(f"❌ Acesso negado: produto gratuito disponível apenas para administradores.")
+                logging.warning("❌ Acesso negado: produto gratuito disponível apenas para administradores.")
                 return jsonify({"error": "produto gratuito é exclusivo para administradores"}), 403
 
             registrar_compra(
@@ -66,24 +72,24 @@ def webhook_kirvano():
                 data_criacao=data_criacao,
                 offer_id=offer_id
             )
-            print("📦 Compra registrada com sucesso.")
+            logging.info("📦 Compra registrada com sucesso.")
 
             ativar_usuario_por_telegram_id(telegram_id)
-            print("🟢 Usuário ativado com sucesso.")
+            logging.info("🟢 Usuário ativado com sucesso.")
 
             salvar_plano_usuario(telegram_id, nome_plano)
-            print("💾 Plano salvo com sucesso.")
-            print(f"✅ Usuário {telegram_id} ativado com plano: {nome_plano}")
+            logging.info("💾 Plano salvo com sucesso.")
+            logging.info(f"✅ Usuário {telegram_id} ativado com plano: {nome_plano}")
 
         elif status in ["REFUNDED", "EXPIRED", "CHARGEBACK"]:
             atualizar_status_compra(sale_id, status)
-            print(f"⚠️ Pagamento não válido. Status: {status}")
+            logging.warning(f"⚠️ Pagamento não válido. Status: {status}")
 
-        print("✅ Webhook finalizado com sucesso.")
+        logging.info("✅ Webhook finalizado com sucesso.")
         return jsonify({"ok": True}), 200
 
     except Exception as e:
-        print("❌ Erro ao processar webhook:", str(e))
+        logging.error(f"❌ Erro ao processar webhook: {e}")
         return jsonify({"error": "erro interno", "mensagem": str(e)}), 500
 
 @app.route("/", methods=["GET"])
@@ -91,7 +97,7 @@ def index():
     return "✅ Webhook Kirvano ativo!", 200
 
 def iniciar_webhook():
-    print("🚀 Iniciando servidor do Webhook Kirvano...")
+    logging.info("🚀 Iniciando servidor do Webhook Kirvano...")
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
 
