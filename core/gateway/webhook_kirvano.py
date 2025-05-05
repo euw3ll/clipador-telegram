@@ -61,9 +61,13 @@ def webhook_kirvano():
             data_criacao=data_criacao,
             offer_id=offer_id
         )
+        print("📦 Compra registrada com sucesso.")
 
         ativar_usuario_por_telegram_id(telegram_id)
+        print("🟢 Usuário ativado com sucesso.")
+
         salvar_plano_usuario(telegram_id, nome_plano)
+        print("💾 Plano salvo com sucesso.")
         print(f"✅ Usuário {telegram_id} ativado com plano: {nome_plano}")
 
     elif status in ["REFUNDED", "EXPIRED", "CHARGEBACK"]:
