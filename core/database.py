@@ -166,7 +166,7 @@ def criar_tabela_compras():
     conn.commit()
     conn.close()
 
-def registrar_compra_kirvano(email, plano, status="aprovado"):
+def registrar_compra(email, plano, status="aprovado"):
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute(
