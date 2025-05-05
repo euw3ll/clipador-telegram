@@ -1,1 +1,1 @@
-web: python3 -m core.gateway.webhook_kirvano
+web: python start_webhook.py

@@ -10,5 +10,5 @@ import asyncio
 def iniciar_chat_privado():
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     registrar_handlers(app)
-    print("✅ Chat privado.")
+    print("💬 Iniciando chat privado...")
     asyncio.run(app.run_polling())
