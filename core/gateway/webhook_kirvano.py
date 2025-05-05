@@ -1,8 +1,6 @@
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 import os
 from flask import Flask, request, jsonify
+from threading import Thread
 from core.database import (
     atualizar_status_compra,
     buscar_telegram_por_email,
@@ -13,7 +11,6 @@ from core.database import (
 )
 
 app = Flask(__name__)
-
 WEBHOOK_TOKEN = "clipador2024secure"
 
 @app.route("/webhook-kirvano", methods=["POST"])
@@ -21,12 +18,16 @@ def webhook_kirvano():
     headers_recebidos = dict(request.headers)
     print("📩 Headers recebidos:", headers_recebidos)
     data = request.json
-    # Token não é enviado em produção pela Kirvano, então a verificação foi removida.
-    sale_id = data.get("sale_id")
-    data_criacao = data.get("created_at")
-    metodo_pagamento = data.get("payment_method")
     print("📬 Webhook recebido:", data)
 
+    token = headers_recebidos.get("Security-Token") or data.get("token") or request.args.get("token")
+    if token != WEBHOOK_TOKEN:
+        print("🔒 Token inválido recebido no webhook.")
+        return jsonify({"error": "unauthorized"}), 403
+
+    sale_id = data.get("sale_id")
+    data_criacao = data.get("created_at")
+    metodo_pagamento = data.get("payment_method") or data.get("payment", {}).get("method")
     status = data.get("status")
     email = data.get("contactEmail") or data.get("customer", {}).get("email")
 
@@ -75,6 +76,10 @@ def webhook_kirvano():
 def index():
     return "✅ Webhook Kirvano ativo!", 200
 
-if __name__ == '__main__':
+def iniciar_webhook():
+    print("🚀 Iniciando servidor do Webhook Kirvano...")
     port = int(os.environ.get("PORT", 5100))
     app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    iniciar_webhook()

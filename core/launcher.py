@@ -34,8 +34,9 @@ def limpar_estado():
         os.remove(ESTADO_PATH)
         print("🧼 Memória anterior apagada.")
 
-def iniciar_clipador():
-    iniciar_ambiente()
+def iniciar_clipador(validar_variaveis=True):
+    if validar_variaveis:
+        iniciar_ambiente()
 
     if "--limpar-estado" in sys.argv:
         limpar_estado()
