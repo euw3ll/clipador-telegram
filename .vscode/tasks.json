@@ -2,27 +2,20 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Iniciar Clipador",
+      "label": "Iniciar Clipador (com venv)",
       "type": "shell",
-      "command": "python3 start.py",
+      "command": "bash",
+      "args": ["-c", "source ./venv/bin/activate && python3 start.py"],
+      "problemMatcher": [],
       "group": {
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": []
-    },
-    {
-      "label": "Iniciar Webhook Kirvano",
-      "type": "process",
-      "command": "python3",
-      "args": ["core/gateway/webhook_kirvano.py"],
-      "isBackground": true,
-      "problemMatcher": []
-    },
-    {
-      "label": "Rodar tudo",
-      "dependsOn": ["Iniciar Clipador", "Iniciar Webhook Kirvano"],
-      "dependsOrder": "parallel"
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      }
     }
   ]
 }

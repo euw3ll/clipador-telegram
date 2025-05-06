@@ -1,29 +1,115 @@
+from telegram.ext import CallbackQueryHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from core.pagamento import consultar_pagamento
 from chat_privado.menus.menu_configurar_canal import menu_configurar_canal, responder_menu_7_configurar
+from core.database import atualizar_telegram_id_simples
+from core.database import buscar_configuracao_canal
 
 from telegram.error import BadRequest
 
+def atualizar_usuario_contexto(update, context):
+    telegram_user_id = update.effective_user.id
+    context.user_data["telegram_id"] = telegram_user_id
+    atualizar_telegram_id_simples(telegram_user_id, telegram_user_id)
 
-# menu_0 → Menu inicial
+# menu_0 → Menu inicial (roteador)
 async def responder_menu_0(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    nivel = context.user_data.get("nivel", 1)
+    tipo_plano = context.user_data.get("tipo_plano", "indefinido")
+    atualizar_usuario_contexto(update, context)
+    if nivel == 2:
+        await responder_menu_assinante(update, context)
+    elif nivel == 3:
+        await responder_menu_ex_assinante(update, context)
+    elif nivel == 999:
+        await responder_menu_admin(update, context)
+    else:
+        await responder_menu_novo_usuario(update, context)
+
+# menu_padrao → Menu inicial (callback renomeado)
+async def responder_menu_padrao(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    atualizar_usuario_contexto(update, context)
+    await responder_menu_0(update, context)
+
+
+# Menus por nível de usuário
+async def responder_menu_novo_usuario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
-
     texto = (
-        "👋 *Seja bem-vindo ao Clipador!*\n\n"
-        "O Clipador é um bot que monitora streamers e envia os melhores momentos automaticamente.\n\n"
-        "Escolha uma opção para continuar:"
+        "👋 *Bem-vindo ao Clipador!*\n\n"
+        "Eu sou o bot que vai transformar seus clipes em ouro (ou pelo menos em muitos views)!\n\n"
+        "Escolha uma opção abaixo para descobrir mais:"
     )
-
     botoes = [
         [InlineKeyboardButton("📚 Como funciona", callback_data="menu_1")],
-        [InlineKeyboardButton("💰 Planos", callback_data="menu_3")],
-        [InlineKeyboardButton("🚀 Assinar", callback_data="menu_3")]
+        [InlineKeyboardButton("💰 Ver planos", callback_data="menu_3")],
+        [InlineKeyboardButton("🚀 Assinar", callback_data="menu_3")],
     ]
+    try:
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
+    except BadRequest:
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
 
+
+async def responder_menu_assinante(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    atualizar_usuario_contexto(update, context)
+    await query.answer()
+    texto = (
+        "🎉 *Menu do Assinante Clipador!*\n\n"
+        "Você já faz parte do clube dos clippers profissionais!\n"
+        "O que deseja fazer agora? (Além de ficar famoso, claro 😎)"
+    )
+    botoes = [
+        [InlineKeyboardButton("📡 Ver canal", callback_data="abrir_canal")],
+        [InlineKeyboardButton("🔧 Configurar canal", callback_data="menu_7_configurar")],
+        [InlineKeyboardButton("📝 Plano atual", callback_data="menu_3")],
+        [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
+    ]
+    try:
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
+    except BadRequest:
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
+
+
+async def responder_menu_ex_assinante(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    atualizar_usuario_contexto(update, context)
+    await query.answer()
+    texto = (
+        "😢 *Sua assinatura expirou!*\n\n"
+        "Mas não se preocupe, ainda dá tempo de voltar para o lado dos clippers felizes.\n"
+        "Veja como funciona ou confira nossos planos para voltar com tudo!"
+    )
+    botoes = [
+        [InlineKeyboardButton("📚 Como funciona", callback_data="menu_1")],
+        [InlineKeyboardButton("💰 Ver planos", callback_data="menu_3")],
+        [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
+    ]
+    try:
+        await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
+    except BadRequest:
+        await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
+
+
+async def responder_menu_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    atualizar_usuario_contexto(update, context)
+    await query.answer()
+    texto = (
+        "🛠️ *Painel Administrativo Clipador*\n\n"
+        "Bem-vindo, mestre dos clipes! Aqui estão suas ferramentas secretas:"
+    )
+    botoes = [
+        [InlineKeyboardButton("👥 Ver usuários", callback_data="admin_ver_usuarios")],
+        [InlineKeyboardButton("📈 Gerar relatório", callback_data="admin_gerar_relatorio")],
+        [InlineKeyboardButton("💳 Pagamentos", callback_data="admin_pagamentos")],
+        [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
+    ]
     try:
         await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)
     except BadRequest:
@@ -33,6 +119,7 @@ async def responder_menu_0(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # menu_1 → Como funciona
 async def responder_menu_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
 
     texto = (
@@ -63,6 +150,7 @@ async def responder_menu_1(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # menu_2 → Planos disponíveis
 async def responder_menu_2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
 
     texto = (
@@ -91,6 +179,7 @@ async def responder_menu_2(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # menu_3 → Lista de Planos
 async def responder_menu_3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
 
     texto = (
@@ -125,6 +214,7 @@ async def responder_menu_3(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # menu_4 → Resumo plano Mensal Solo
 async def responder_menu_4_mensal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
 
     texto = (
@@ -151,6 +241,7 @@ async def responder_menu_4_mensal(update: Update, context: ContextTypes.DEFAULT_
 # menu_4 → Resumo plano Mensal Plus
 async def responder_menu_4_plus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
 
     texto = (
@@ -177,6 +268,7 @@ async def responder_menu_4_plus(update: Update, context: ContextTypes.DEFAULT_TY
 # menu_4 → Resumo plano Anual Pro
 async def responder_menu_4_anual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
 
     texto = (
@@ -207,6 +299,7 @@ from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
 
 async def responder_menu_6_confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
 
     pagamento_id = context.user_data.get("id_pagamento")
@@ -248,15 +341,70 @@ async def responder_menu_6_confirmar(update: Update, context: ContextTypes.DEFAU
 
 async def responder_menu_7_configurar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    atualizar_usuario_contexto(update, context)
     await query.answer()
 
-    texto = "🔧 Vamos começar a configuração do seu canal personalizado."
-    botoes = [
-        [InlineKeyboardButton("➡️ Continuar", callback_data="iniciar_envio_twitch")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_0")]
-    ]
+    telegram_id = context.user_data.get("telegram_id")
+    configurado = buscar_configuracao_canal(telegram_id)
+
+    if configurado and configurado.get("streamers_monitorados"):
+        texto = f"⚙️ E aí, meu assinante favorito?\n\nSeu canal já está configurado com sucesso!\nO que deseja fazer agora?"
+        botoes = [
+            [InlineKeyboardButton("🎯 Streamers", callback_data="alterar_streamer")],
+            [InlineKeyboardButton("⚙️ Modo de monitoramento", callback_data="alterar_modo_monitoramento")],
+            [InlineKeyboardButton("➕ Adicionar slot", callback_data="adicionar_slot")],
+            [InlineKeyboardButton("🔑 Reconfigurar chaves da Twitch", callback_data="iniciar_envio_twitch")],
+            [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
+        ]
+    else:
+        texto = "🔧 Vamos começar a configuração do seu canal personalizado."
+        botoes = [
+            [InlineKeyboardButton("➡️ Continuar", callback_data="iniciar_envio_twitch")],
+            [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
+        ]
 
     try:
         await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes))
     except BadRequest:
         await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes))
+
+
+# Registrar handler para menu_7_configurar
+def registrar_menu_configurar(application):
+    application.add_handler(CallbackQueryHandler(responder_menu_7_configurar, pattern="^menu_7_configurar$"))
+
+# Handlers para os submenus do botão "Configurar canal"
+def registrar_submenus_configuracao(application):
+    application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer("🚧 Em breve: Alterar streamer!"), pattern="^alterar_streamer$"))
+    application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer("🚧 Em breve: Alterar modo de monitoramento!"), pattern="^alterar_modo_monitoramento$"))
+    application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer("🚧 Em breve: Adicionar slot!"), pattern="^adicionar_slot$"))
+    application.add_handler(CallbackQueryHandler(responder_menu_7_configurar, pattern="^configurar_chaves_twitch$"))
+
+
+# Handler para iniciar envio twitch
+async def responder_menu_iniciar_envio_twitch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    texto = (
+        "🧩 Vamos configurar seu Clipador!\n\n"
+        "Para funcionar, você precisa criar um app na Twitch com as seguintes credenciais:\n\n"
+        "1️⃣ Vá em https://dev.twitch.tv/console/apps\n"
+        "2️⃣ Clique em *Register Your Application*\n"
+        "3️⃣ Nomeie como quiser\n"
+        "4️⃣ Redirecione para: `https://localhost`\n"
+        "5️⃣ Selecione 'Chat Bot'\n\n"
+        "Depois de criar, me envie:\n"
+        "- `Client ID`\n"
+        "- `Client Secret`\n\n"
+        "Pode colar aqui mesmo, eu vou te guiando! 😎"
+    )
+
+    try:
+        await query.edit_message_text(text=texto, parse_mode=ParseMode.MARKDOWN)
+    except BadRequest:
+        await query.message.reply_text(text=texto, parse_mode=ParseMode.MARKDOWN)
+
+
+def registrar_menu_iniciar_envio_twitch(application):
+    application.add_handler(CallbackQueryHandler(responder_menu_iniciar_envio_twitch, pattern="^iniciar_envio_twitch$"))

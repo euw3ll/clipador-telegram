@@ -43,7 +43,7 @@ def iniciar_clipador(validar_variaveis=True):
 
     criar_estado_se_nao_existir()
 
-    print("🚀 Iniciando o canal gratuito...")
+    print("📺 Iniciando o canal gratuito...")
 
     try:
         subprocess.Popen([sys.executable, "-m", "canal_gratuito.main"])

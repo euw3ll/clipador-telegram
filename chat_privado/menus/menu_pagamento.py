@@ -7,7 +7,8 @@ from core.database import (
     salvar_plano_usuario,
     is_usuario_admin,
     buscar_pagamento_por_email,
-    registrar_log_pagamento
+    registrar_log_pagamento,
+    vincular_email_usuario
 )
 from io import BytesIO
 from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao
@@ -163,8 +164,10 @@ async def responder_menu_6(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query:
         await query.answer()
+        # Salva o ID da mensagem de botões para poder editar depois
+        context.user_data["mensagem_pagamento_id"] = query.message.message_id
         await query.message.reply_text(
-            "😎 Beleza! Agora me diga qual e-mail você usou para fazer o pagamento:",
+            text="😎 Beleza! Agora me diga qual e-mail você usou para fazer o pagamento:",
             reply_markup=ForceReply(selective=True)
         )
     else:
@@ -178,9 +181,18 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.gateway.kirvano import verificar_pagamento_email_e_registrar
 
     email = update.message.text.strip()
+    vincular_email_usuario(update.effective_user.id, email)
+
+    # Apaga a mensagem anterior com os botões, se possível
+    plano_esperado = context.user_data.get("plano_esperado", "Mensal Solo")
+    try:
+        await update.message.delete()
+    except Exception as e:
+        print(f"[DEBUG] Não foi possível apagar a mensagem anterior: {e}")
 
     if not email or "@" not in email or "." not in email:
         await update.message.reply_text(
+            f"📧 E-mail informado: {email}\n\n"
             "❌ E-mail inválido ou não informado. Por favor, digite um e-mail válido para continuar.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")],
@@ -192,7 +204,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action(action="typing")
 
     telegram_id = update.effective_user.id
-    plano_esperado = context.user_data.get("plano_esperado", "Mensal Solo")
+    print(f"[DEBUG] Iniciando verificação de pagamento do e-mail: {email}")
 
     if email_ja_utilizado_por_outro_usuario(email, telegram_id):
         await update.message.reply_text(
@@ -204,9 +216,24 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return MENU_6
 
-    status, plano_real = verificar_pagamento_email_e_registrar(email, telegram_id)
-
-    registrar_log_pagamento(telegram_id, email, plano_real, status)
+    try:
+        status, plano_real = verificar_pagamento_email_e_registrar(email, telegram_id)
+        from core.database import atualizar_status_compra_telegram
+        atualizar_status_compra_telegram(email, telegram_id, status)
+        registrar_log_pagamento(telegram_id, email, plano_real, status)
+    except Exception as e:
+        status = "erro_interno"
+        plano_real = None
+        print(f"[ERRO] Exceção ao verificar pagamento: {str(e)}")
+        registrar_log_pagamento(telegram_id, email, None, status)
+        await update.message.reply_text(
+            "❌ Ocorreu um erro inesperado durante a verificação do pagamento.\nTente novamente mais tarde.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔁 Tentar novamente", callback_data="menu_6")],
+                [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
+            ])
+        )
+        return MENU_6
 
     # Verifica se o plano adquirido é diferente do selecionado
     if status == "approved" and plano_real != plano_esperado:
@@ -223,7 +250,15 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if status == "approved":
         print("[DEBUG] Pagamento aprovado, ativando usuário...")
-        salvar_email_usuario(telegram_id, email)
+        if not vincular_email_usuario(telegram_id, email):
+            await update.message.reply_text(
+                "❌ Este e-mail já está vinculado a outro usuário.\nVerifique se digitou corretamente ou use outro e-mail.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")],
+                    [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
+                ])
+            )
+            return MENU_6
         salvar_plano_usuario(telegram_id, plano_real)
         ativar_usuario_por_telegram_id(telegram_id)
         await update.message.reply_text(
@@ -233,7 +268,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         botoes = [
-            [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="menu_configurar_canal")]
+            [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]
         ]
         await update.message.reply_text(
             "Clique no botão abaixo para configurar seu canal personalizado:",
@@ -241,23 +276,12 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return ConversationHandler.END
     elif status == "free":
-        print("[DEBUG] Produto gratuito detectado.")
-
-        if "@" not in email or "." not in email:
-            await update.message.reply_text(
-                "❌ E-mail inválido. Por favor, digite um e-mail real para continuar.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")],
-                    [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
-                ])
-            )
-            return MENU_6
-
         pagamento = buscar_pagamento_por_email(email)
         if not pagamento:
-            print("[DEBUG] E-mail não está associado a nenhuma compra real.")
+            print("[DEBUG] Nenhuma compra detectada com este e-mail.")
             await update.message.reply_text(
-                "❌ Este e-mail não está vinculado a nenhuma compra.\nVerifique se digitou corretamente.",
+                "❌ Nenhuma compra detectada com este e-mail.\n"
+                "Verifique se digitou corretamente ou realize o pagamento antes de continuar.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")],
                     [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
@@ -265,24 +289,8 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return MENU_6
 
-        if is_usuario_admin(telegram_id):
-            print("[DEBUG] Usuário é admin e e-mail é válido, ativando acesso gratuito.")
-            salvar_email_usuario(telegram_id, email)
-            salvar_plano_usuario(telegram_id, plano_real)
-            ativar_usuario_por_telegram_id(telegram_id)
-            await update.message.reply_text(
-                f"🔓 Produto gratuito reconhecido e ativado para admin.\nPlano: *{plano_real}*.",
-                parse_mode="Markdown"
-            )
-            botoes = [
-                [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="menu_configurar_canal")]
-            ]
-            await update.message.reply_text(
-                "Clique no botão abaixo para configurar seu canal personalizado:",
-                reply_markup=InlineKeyboardMarkup(botoes)
-            )
-            return ConversationHandler.END
-        else:
+        print("[DEBUG] Produto gratuito detectado.")
+        if not is_usuario_admin(telegram_id):
             print("[DEBUG] Usuário NÃO é admin, bloqueando produto gratuito.")
             await update.message.reply_text(
                 "❌ Produtos gratuitos só podem ser usados por administradores.",
@@ -290,15 +298,73 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("🔙 Voltar", callback_data="menu_2")]
                 ])
             )
+            return MENU_6
+
+        print("[DEBUG] Usuário é admin e e-mail é válido, ativando acesso gratuito.")
+        if not vincular_email_usuario(telegram_id, email):
+            await update.message.reply_text(
+                "❌ Este e-mail já está vinculado a outro usuário.\nVerifique se digitou corretamente ou use outro e-mail.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")],
+                    [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
+                ])
+            )
+            return MENU_6
+        salvar_plano_usuario(telegram_id, plano_real)
+        ativar_usuario_por_telegram_id(telegram_id)
+        await update.message.reply_text(
+            f"🔓 Produto gratuito reconhecido e ativado para admin.\nPlano: *{plano_real}*.",
+            parse_mode="Markdown"
+        )
+        botoes = [
+            [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]
+        ]
+        await update.message.reply_text(
+            "Clique no botão abaixo para configurar seu canal personalizado:",
+            reply_markup=InlineKeyboardMarkup(botoes)
+        )
+        return ConversationHandler.END
     elif status == "pending":
         print("[DEBUG] Pagamento pendente.")
-        await update.message.reply_text(
-            "🕐 Pagamento ainda pendente.\nAguarde a confirmação e clique novamente em 'Já paguei'.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔁 Já paguei", callback_data="menu_6")],
-                [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
-            ])
+        # Determina a mensagem a ser editada
+        mensagem_id = None
+        chat_id = update.effective_chat.id
+        # Tenta pegar a mensagem de botões anterior via reply_to_message, senão pega do user_data
+        if update.message.reply_to_message:
+            mensagem_id = update.message.reply_to_message.message_id
+        else:
+            mensagem_id = context.user_data.get("mensagem_pagamento_id")
+        plano_esperado = context.user_data.get("plano_esperado", "Mensal Solo")
+        # Monta os botões
+        botoes = [
+            [InlineKeyboardButton("📎 Acessar link de pagamento", url=LINKS_KIRVANO.get(plano_esperado, ""))],
+            [InlineKeyboardButton("✅ Já paguei", callback_data="menu_6")],
+            [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
+        ]
+        texto_pendente = (
+            f"📧 E-mail informado: {email}\n\n"
+            "🕐 Pagamento ainda pendente.\n"
+            "Aguarde a confirmação e clique novamente em 'Já paguei'."
         )
+        if mensagem_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=mensagem_id,
+                    text=texto_pendente,
+                    reply_markup=InlineKeyboardMarkup(botoes)
+                )
+            except Exception as e:
+                print(f"[DEBUG] Falha ao editar mensagem pendente: {e}")
+                await update.message.reply_text(
+                    texto_pendente,
+                    reply_markup=InlineKeyboardMarkup(botoes)
+                )
+        else:
+            await update.message.reply_text(
+                texto_pendente,
+                reply_markup=InlineKeyboardMarkup(botoes)
+            )
     elif status == "not_found":
         print("[DEBUG] Pagamento não encontrado.")
         await update.message.reply_text(
@@ -309,7 +375,40 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
         return MENU_6
-    else:
+    elif status == "pendente":
+        print("[DEBUG] Produto gratuito detectado, mas status pendente. Checando se é admin...")
+        if is_usuario_admin(telegram_id):
+            print("[DEBUG] Admin liberado mesmo com status pendente.")
+            salvar_plano_usuario(telegram_id, plano_real or plano_esperado)
+            ativar_usuario_por_telegram_id(telegram_id)
+            await update.message.reply_text(
+                f"🔓 Produto gratuito ativado para admin.\nPlano: *{plano_esperado}*.",
+                parse_mode="Markdown"
+            )
+            botoes = [
+                [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]
+            ]
+            await update.message.reply_text(
+                "Clique no botão abaixo para configurar seu canal personalizado:",
+                reply_markup=InlineKeyboardMarkup(botoes)
+            )
+            return ConversationHandler.END
+        else:
+            texto_pendente = (
+                f"📧 E-mail informado: {email}\n\n"
+                "🕐 Pagamento ainda pendente.\n"
+                "Aguarde a confirmação e clique novamente em 'Já paguei'."
+            )
+            await update.message.reply_text(
+                texto_pendente,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔁 Já paguei", callback_data="menu_6")],
+                    [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
+                ])
+            )
+            return MENU_6
+    # Fallback para status inesperado
+    if status not in ["approved", "free", "pending", "not_found", "pendente"]:
         print(f"[DEBUG] Erro inesperado na verificação de pagamento: {status}")
         await update.message.reply_text(
             "❌ Ocorreu um erro inesperado durante a verificação do pagamento.\nTente novamente ou verifique os dados informados.",
@@ -326,6 +425,8 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
 MENU_6 = 6
 
 from telegram.ext import CallbackQueryHandler
+# HANDLER PARA MENU DE CONFIGURAÇÃO DO CANAL
+from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
 
 pagamento_conversation_handler = ConversationHandler(
     entry_points=[CallbackQueryHandler(responder_menu_6, pattern="^menu_6$")],
@@ -333,7 +434,9 @@ pagamento_conversation_handler = ConversationHandler(
         MENU_6: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_email)],
     },
     fallbacks=[],
+    per_message=False
 )
+
 
 # ROTEADOR
 async def roteador_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -348,3 +451,9 @@ async def roteador_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif data.startswith("pagar_cartao_"):
         plano = data.replace("pagar_cartao_", "").replace("_", " ")
         await gerar_pagamento_cartao(update, context, plano)
+
+    elif data == "abrir_configurar_canal":
+        from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
+        print("[DEBUG] Callback abrir_configurar_canal acionado.")
+        await update.callback_query.answer()
+        await menu_configurar_canal(update, context)
