@@ -244,7 +244,40 @@ def configurar_canal_conversa():
         allow_reentry=True
     )
 
+
 # Callback direto do botão "Continuar configuração" (menu_7)
 async def responder_menu_7_configurar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await menu_configurar_canal(update, context)
+
+
+# Função para ser chamada pelo webhook após pagamento aprovado
+async def iniciar_configuracao_via_webhook(application, telegram_id):
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    try:
+        user_chat = await application.bot.get_chat(telegram_id)
+        texto = (
+            "🎉 *Pagamento confirmado!*\n\n"
+            "Agora vamos configurar seu canal personalizado do Clipador.\n\n"
+            "👣 *Passo 1* — Crie um aplicativo na Twitch:\n"
+            "Acesse: https://dev.twitch.tv/console/apps\n"
+            "Clique em *Register Your Application* e preencha:\n"
+            "- Name: Clipador\n"
+            "- OAuth Redirect URL: `https://clipador.com.br/redirect`\n"
+            "- Category: Chat Bot\n\n"
+            "Depois de criar, envie aqui no bot:\n"
+            "`Client ID` e `Client Secret`\n\n"
+            "*Exemplo:* \n"
+            "`ID: abc123`\n"
+            "`SECRET: def456`\n\n"
+            "Quando estiver pronto, clique abaixo 👇"
+        )
+        botoes = [
+            [InlineKeyboardButton("📨 Enviar dados da Twitch", callback_data="enviar_twitch")],
+            [InlineKeyboardButton("🔙 Voltar ao início", callback_data="menu_0")]
+        ]
+        await application.bot.send_message(chat_id=telegram_id, text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        return True
+    except Exception as e:
+        print(f"Erro ao enviar mensagem inicial para {telegram_id}: {e}")
+        return False

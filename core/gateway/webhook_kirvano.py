@@ -7,9 +7,15 @@ from core.database import (
     ativar_usuario_por_telegram_id,
     salvar_plano_usuario,
     eh_admin,
-    registrar_compra
+    registrar_compra,
+    atualizar_status_pagamento,
+    compra_ja_registrada,
+    registrar_evento_webhook,
+    atualizar_plano_usuario
 )
+from core.telegram import enviar_mensagem_ativacao
 import logging
+from chat_privado.menus.menu_configurar_canal import iniciar_configuracao_via_webhook
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,10 +29,20 @@ WEBHOOK_TOKEN = "clipador2024secure"
 def webhook_kirvano():
     try:
         logging.info("⚙️ Início do processamento do webhook Kirvano")
+        import os
+        logging.info(f"📁 Banco em uso: {os.path.abspath('banco/clipador.db')}")
+        logging.info(f"📂 Diretório atual: {os.getcwd()}")
         headers_recebidos = dict(request.headers)
         logging.info(f"📩 Headers recebidos: {headers_recebidos}")
         data = request.json
+        if not data or not isinstance(data, dict):
+            logging.warning("⚠️ Webhook vazio ou inválido.")
+            return jsonify({"error": "payload inválido"}), 400
+        registrar_evento_webhook(data)
         logging.info(f"📬 Webhook recebido: {data}")
+
+        nome_completo = data.get("customer", {}).get("name")
+        telefone = data.get("customer", {}).get("phone_number")
 
         token = headers_recebidos.get("Security-Token")
         if token != WEBHOOK_TOKEN:
@@ -39,8 +55,15 @@ def webhook_kirvano():
         status = data.get("status")
         email = data.get("customer", {}).get("email") or data.get("contactEmail")
 
+        # Ignora se já foi registrado e não for email de teste
+        email_teste = email.strip().lower() in ["wendrell.antoneli@gmail.com", "w3lldrop@gmail.com"]
+        if compra_ja_registrada(sale_id) and not email_teste:
+            logging.info("🛑 Compra já registrada anteriormente. Ignorando.")
+            return jsonify({"ok": True, "duplicada": True}), 200
+
         produtos = data.get("products", [])
-        nome_plano = produtos[0].get("offer_name") if produtos else "Plano desconhecido"
+        # Pega a primeira oferta com nome válido
+        nome_plano = next((p.get("offer_name") for p in produtos if p.get("offer_name")), "Plano desconhecido")
         offer_id = produtos[0].get("offer_id") if produtos else None
 
         if not email:
@@ -62,28 +85,44 @@ def webhook_kirvano():
                 logging.warning("❌ Acesso negado: produto gratuito disponível apenas para administradores.")
                 return jsonify({"error": "produto gratuito é exclusivo para administradores"}), 403
 
-            registrar_compra(
-                telegram_id=telegram_id,
-                email=email,
-                plano=nome_plano,
-                metodo_pagamento=metodo_pagamento,
-                status=status,
-                sale_id=sale_id,
-                data_criacao=data_criacao,
-                offer_id=offer_id
-            )
-            logging.info("📦 Compra registrada com sucesso.")
+            try:
+                registrar_compra(
+                    telegram_id=telegram_id,
+                    email=email,
+                    plano=nome_plano,
+                    metodo_pagamento=metodo_pagamento,
+                    status=status,
+                    sale_id=sale_id,
+                    data_criacao=data_criacao,
+                    offer_id=offer_id,
+                    nome_completo=nome_completo,
+                    telefone=telefone
+                )
+                logging.info("📦 Compra registrada com sucesso.")
+            except Exception as e:
+                logging.error(f"❌ Erro ao registrar compra: {e}")
 
-            ativar_usuario_por_telegram_id(telegram_id)
-            logging.info("🟢 Usuário ativado com sucesso.")
+            try:
+                ativar_usuario_por_telegram_id(telegram_id)
+                logging.info("🟢 Usuário ativado com sucesso.")
+                enviar_mensagem_ativacao(telegram_id)
+                iniciar_configuracao_via_webhook(telegram_id)
+            except Exception as e:
+                logging.error(f"❌ Erro ao ativar usuário: {e}")
 
-            salvar_plano_usuario(telegram_id, nome_plano)
-            logging.info("💾 Plano salvo com sucesso.")
-            logging.info(f"✅ Usuário {telegram_id} ativado com plano: {nome_plano}")
+            try:
+                atualizar_plano_usuario(telegram_id, nome_plano)
+                logging.info("🔁 Plano do usuário atualizado com sucesso.")
+                atualizar_status_pagamento(telegram_id, "aprovado")
+                logging.info("📌 Status de pagamento atualizado para aprovado.")
+                logging.info(f"✅ Usuário {telegram_id} ativado com plano: {nome_plano}")
+            except Exception as e:
+                logging.error(f"❌ Erro ao salvar plano: {e}")
 
         elif status in ["REFUNDED", "EXPIRED", "CHARGEBACK"]:
             atualizar_status_compra(sale_id, status)
             logging.warning(f"⚠️ Pagamento não válido. Status: {status}")
+            return jsonify({"ok": True, "status": status}), 200
 
         logging.info("✅ Webhook finalizado com sucesso.")
         return jsonify({"ok": True}), 200

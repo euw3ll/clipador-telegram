@@ -152,30 +152,38 @@ def is_usuario_admin(telegram_id):
 def criar_tabela_compras():
     conn = conectar()
     cursor = conn.cursor()
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS compras (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER,
             email TEXT NOT NULL,
             plano TEXT NOT NULL,
+            metodo_pagamento TEXT,
             status TEXT DEFAULT 'aprovado',
+            sale_id TEXT,
+            data_criacao TEXT,
+            offer_id TEXT,
+            nome_completo TEXT,
+            telefone TEXT,
             criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-
     conn.commit()
     conn.close()
 
-def registrar_compra(telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id):
+def registrar_compra(telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id, nome_completo=None, telefone=None):
     conexao = sqlite3.connect("banco/clipador.db")
     cursor = conexao.cursor()
-
     cursor.execute("""
-        INSERT INTO compras (telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id))
-
+        INSERT INTO compras (telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id, nome_completo, telefone)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id, nome_completo, telefone))
     conexao.commit()
+
+    # Atualiza status_pagamento e plano_assinado do usuário
+    cursor.execute("UPDATE usuarios SET status_pagamento = ?, plano_assinado = ? WHERE id = ?", (status, plano, telegram_id))
+    conexao.commit()
+
     conexao.close()
 
 def compra_aprovada(email):
@@ -250,3 +258,28 @@ def registrar_log_pagamento(dados: dict):
     with open("memoria/log_pagamentos.txt", "a", encoding="utf-8") as f:
         linha = f"[{datetime.datetime.now()}] {dados}\n"
         f.write(linha)
+
+
+# Função para atualizar o status_pagamento do usuário
+def atualizar_status_pagamento(telegram_id, status):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET status_pagamento = ? WHERE id = ?", (status, telegram_id))
+    conn.commit()
+    conn.close()
+# Função para atualizar o status_pagamento do usuário
+def atualizar_status_pagamento(telegram_id, status):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET status_pagamento = ? WHERE id = ?", (status, telegram_id))
+    conn.commit()
+    conn.close()
+
+# Função para verificar se sale_id já foi registrado
+def sale_id_ja_registrado(sale_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM compras WHERE sale_id = ?", (sale_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+    return resultado and resultado[0] > 0
