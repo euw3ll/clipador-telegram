@@ -22,7 +22,8 @@ def criar_tabelas():
             tipo_plano TEXT DEFAULT NULL,
             status_pagamento TEXT DEFAULT 'pendente',
             plano_assinado TEXT DEFAULT NULL,
-            is_admin INTEGER DEFAULT 0
+            is_admin INTEGER DEFAULT 0,
+            configuracao_finalizada INTEGER DEFAULT 0
         )
     """)
 
@@ -414,3 +415,87 @@ def buscar_configuracao_canal(telegram_id):
         colunas = [col[0] for col in cursor.description]
         return dict(zip(colunas, resultado))
     return None
+
+def marcar_configuracao_completa(telegram_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET configuracao_finalizada = 1 WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+
+def is_configuracao_completa(telegram_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT configuracao_finalizada FROM usuarios WHERE telegram_id = ?", (telegram_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+    return resultado and resultado[0] == 1
+def assinatura_em_configuracao(telegram_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT u.nivel, c.twitch_client_id, c.streamers_monitorados, c.modo_monitoramento
+        FROM usuarios u
+        LEFT JOIN configuracoes_canal c ON u.telegram_id = c.telegram_id
+        WHERE u.telegram_id = ? AND u.nivel = 2
+    """, (telegram_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+
+    if not resultado:
+        return False
+
+    nivel, twitch_id, streamers, modo = resultado
+    campos_pendentes = not twitch_id or not streamers or not modo
+    return campos_pendentes
+
+
+# Funções de progresso do funil usando a tabela configuracoes_canal
+
+def salvar_progresso_configuracao(telegram_id, etapa, dados_parciais=None):
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # Atualiza ou cria linha com progresso parcial
+    if buscar_configuracao_canal(telegram_id):
+        cursor.execute(f"""
+            UPDATE configuracoes_canal
+            SET modo_monitoramento = COALESCE(modo_monitoramento, ?),
+                streamers_monitorados = COALESCE(streamers_monitorados, ?)
+            WHERE telegram_id = ?
+        """, (
+            dados_parciais.get("modo_monitoramento") if dados_parciais else None,
+            dados_parciais.get("streamers_monitorados") if dados_parciais else None,
+            telegram_id
+        ))
+    else:
+        cursor.execute(f"""
+            INSERT INTO configuracoes_canal (telegram_id, modo_monitoramento, streamers_monitorados)
+            VALUES (?, ?, ?)
+        """, (
+            telegram_id,
+            dados_parciais.get("modo_monitoramento") if dados_parciais else None,
+            dados_parciais.get("streamers_monitorados") if dados_parciais else None
+        ))
+
+    conn.commit()
+    conn.close()
+
+def buscar_progresso_configuracao(telegram_id):
+    config = buscar_configuracao_canal(telegram_id)
+    if not config:
+        return None
+
+    progresso = {}
+    if config.get("modo_monitoramento"):
+        progresso["modo_monitoramento"] = config["modo_monitoramento"]
+    if config.get("streamers_monitorados"):
+        progresso["streamers_monitorados"] = config["streamers_monitorados"]
+    return progresso if progresso else None
+
+def limpar_progresso_configuracao(telegram_id):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()

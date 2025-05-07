@@ -261,12 +261,28 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return MENU_6
         salvar_plano_usuario(telegram_id, plano_real)
         ativar_usuario_por_telegram_id(telegram_id)
-        await update.message.reply_text(
+        # Apagar mensagens anteriores
+        try:
+            await update.message.reply_to_message.delete()
+            await update.message.delete()
+        except:
+            pass
+        # Apagar mensagens antigas de confirmação, se houver
+        mensagens = context.user_data.get("mensagens_para_apagar", [])
+        for msg_id in mensagens:
+            try:
+                await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
+            except Exception:
+                pass
+        context.user_data["mensagens_para_apagar"] = []
+
+        nova_msg = await update.message.reply_text(
             f"✅ Pagamento confirmado com sucesso!\n\n"
             f"Plano assinado: *{plano_real}*.\n"
             f"Seu acesso foi liberado. Agora vamos configurar seu canal privado.",
             parse_mode="Markdown"
         )
+        context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
         botoes = [
             [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]
         ]
@@ -280,7 +296,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not pagamento:
             print("[DEBUG] Nenhuma compra detectada com este e-mail.")
             await update.message.reply_text(
-                "❌ Nenhuma compra detectada com este e-mail.\n"
+                f"❌ Nenhuma compra detectada com o e-mail: {email}\n"
                 "Verifique se digitou corretamente ou realize o pagamento antes de continuar.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")],
@@ -312,10 +328,26 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return MENU_6
         salvar_plano_usuario(telegram_id, plano_real)
         ativar_usuario_por_telegram_id(telegram_id)
-        await update.message.reply_text(
-            f"🔓 Produto gratuito reconhecido e ativado para admin.\nPlano: *{plano_real}*.",
+        # Apagar mensagens anteriores
+        try:
+            await update.message.reply_to_message.delete()
+            await update.message.delete()
+        except:
+            pass
+        # Apagar mensagens antigas de confirmação, se houver
+        mensagens = context.user_data.get("mensagens_para_apagar", [])
+        for msg_id in mensagens:
+            try:
+                await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
+            except Exception:
+                pass
+        context.user_data["mensagens_para_apagar"] = []
+
+        nova_msg = await update.message.reply_text(
+            f"🔓 Produto gratuito ativado para admin.\nPlano: *{plano_esperado}*.",
             parse_mode="Markdown"
         )
+        context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
         botoes = [
             [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]
         ]
@@ -376,15 +408,44 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return MENU_6
     elif status == "pendente":
+        pagamento = buscar_pagamento_por_email(email)
+        if not pagamento:
+            print("[DEBUG] Nenhuma compra detectada com este e-mail (pendente).")
+            await update.message.reply_text(
+                "❌ Nenhuma compra detectada com este e-mail.\n"
+                "Verifique se digitou corretamente ou realize o pagamento antes de continuar.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")],
+                    [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
+                ])
+            )
+            return MENU_6
+
         print("[DEBUG] Produto gratuito detectado, mas status pendente. Checando se é admin...")
         if is_usuario_admin(telegram_id):
             print("[DEBUG] Admin liberado mesmo com status pendente.")
             salvar_plano_usuario(telegram_id, plano_real or plano_esperado)
             ativar_usuario_por_telegram_id(telegram_id)
-            await update.message.reply_text(
+            # Apagar mensagens anteriores
+            try:
+                await update.message.reply_to_message.delete()
+                await update.message.delete()
+            except:
+                pass
+            # Apagar mensagens antigas de confirmação, se houver
+            mensagens = context.user_data.get("mensagens_para_apagar", [])
+            for msg_id in mensagens:
+                try:
+                    await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
+                except Exception:
+                    pass
+            context.user_data["mensagens_para_apagar"] = []
+
+            nova_msg = await update.message.reply_text(
                 f"🔓 Produto gratuito ativado para admin.\nPlano: *{plano_esperado}*.",
                 parse_mode="Markdown"
             )
+            context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
             botoes = [
                 [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]
             ]
