@@ -1,3 +1,14 @@
+async def avancar_para_nova_etapa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botoes: list):
+    mensagens = context.user_data.get("mensagens_para_apagar", [])
+    for msg_id in mensagens:
+        try:
+            await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
+        except Exception:
+            pass
+    context.user_data["mensagens_para_apagar"] = []
+
+    nova_msg = await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
 from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
 from core.database import (
@@ -8,7 +19,8 @@ from core.database import (
     is_usuario_admin,
     buscar_pagamento_por_email,
     registrar_log_pagamento,
-    vincular_email_usuario
+    vincular_email_usuario,
+    atualizar_status_compra_telegram
 )
 from io import BytesIO
 from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao
@@ -261,34 +273,13 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return MENU_6
         salvar_plano_usuario(telegram_id, plano_real)
         ativar_usuario_por_telegram_id(telegram_id)
-        # Apagar mensagens anteriores
-        try:
-            await update.message.reply_to_message.delete()
-            await update.message.delete()
-        except:
-            pass
-        # Apagar mensagens antigas de confirmação, se houver
-        mensagens = context.user_data.get("mensagens_para_apagar", [])
-        for msg_id in mensagens:
-            try:
-                await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
-            except Exception:
-                pass
-        context.user_data["mensagens_para_apagar"] = []
-
-        nova_msg = await update.message.reply_text(
+        await avancar_para_nova_etapa(
+            update,
+            context,
             f"✅ Pagamento confirmado com sucesso!\n\n"
             f"Plano assinado: *{plano_real}*.\n"
             f"Seu acesso foi liberado. Agora vamos configurar seu canal privado.",
-            parse_mode="Markdown"
-        )
-        context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
-        botoes = [
-            [InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]
-        ]
-        await update.message.reply_text(
-            "Clique no botão abaixo para configurar seu canal personalizado:",
-            reply_markup=InlineKeyboardMarkup(botoes)
+            [[InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]]
         )
         return ConversationHandler.END
     elif status == "free":

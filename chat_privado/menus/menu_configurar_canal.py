@@ -1,3 +1,35 @@
+async def limpar_e_enviar_nova_etapa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botoes: list, parse_mode="Markdown"):
+    # Apagar mensagens antigas armazenadas
+    for msg_id in context.user_data.get("mensagens_para_apagar", []):
+        try:
+            await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
+        except:
+            pass
+    context.user_data["mensagens_para_apagar"] = []
+
+    # Tentar editar a mensagem se for callback, senão enviar nova
+    try:
+        if update.callback_query:
+            await update.callback_query.answer()
+            nova_msg = await update.callback_query.edit_message_text(
+                text=texto,
+                reply_markup=InlineKeyboardMarkup(botoes),
+                parse_mode=parse_mode
+            )
+        else:
+            nova_msg = await update.message.reply_text(
+                text=texto,
+                reply_markup=InlineKeyboardMarkup(botoes),
+                parse_mode=parse_mode
+            )
+        context.user_data["mensagens_para_apagar"] = [nova_msg.message_id]
+    except:
+        nova_msg = await update.effective_message.reply_text(
+            text=texto,
+            reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode=parse_mode
+        )
+        context.user_data["mensagens_para_apagar"] = [nova_msg.message_id]
 import os
 import sqlite3
 import requests
@@ -8,7 +40,12 @@ from telegram.ext import (
     CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 )
 from core.ambiente import MERCADO_PAGO_ACCESS_TOKEN
-from core.database import buscar_configuracao_canal, conectar
+from core.database import (
+    buscar_configuracao_canal,
+    salvar_progresso_configuracao,
+    limpar_progresso_configuracao,
+    conectar
+)
 from chat_privado.usuarios import get_nivel_usuario
 from core.telethon_criar_canal import criar_canal_telegram
 
@@ -118,15 +155,14 @@ async def menu_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TY
                 except:
                     pass
             context.user_data["mensagens_para_apagar"] = []
-        await query.edit_message_text(
-            "⚙️ Seu canal já está configurado.\n\nO que deseja fazer?",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("👁 Ver canal", callback_data="ver_canal")],
-                [InlineKeyboardButton("🔧 Alterar configuração", callback_data="enviar_twitch")],
-                [InlineKeyboardButton("ℹ️ Ver plano", callback_data="ver_plano")],
-                [InlineKeyboardButton("🔙 Voltar", callback_data="menu_0")]
-            ])
-        )
+        texto = "⚙️ Seu canal já está configurado.\n\nO que deseja fazer?"
+        botoes = [
+            [InlineKeyboardButton("👁 Ver canal", callback_data="ver_canal")],
+            [InlineKeyboardButton("🔧 Alterar configuração", callback_data="enviar_twitch")],
+            [InlineKeyboardButton("ℹ️ Ver plano", callback_data="ver_plano")],
+            [InlineKeyboardButton("🔙 Voltar", callback_data="menu_0")]
+        ]
+        await limpar_e_enviar_nova_etapa(update, context, texto, botoes, parse_mode=None)
         return
 
     texto = (
@@ -139,16 +175,7 @@ async def menu_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("📨 Enviar dados da Twitch", callback_data="enviar_twitch")]
     ]
 
-    try:
-        msg = await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-        # Quando o menu de planos for exibido, armazene a mensagem para exclusão
-        context.user_data.setdefault("mensagens_para_apagar", []).append(query.message.message_id)
-        # Se for a mensagem de plano selecionado, armazene seu id
-        context.user_data["mensagem_plano_selecionado"] = msg.message_id
-    except Exception:
-        nova_msg = await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-        context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
-        context.user_data["mensagem_plano_selecionado"] = nova_msg.message_id
+    await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
 
 async def iniciar_configuracao_pos_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE, email_pagamento: str = ""):
     await update.callback_query.answer()
@@ -178,24 +205,27 @@ async def iniciar_configuracao_pos_pagamento(update: Update, context: ContextTyp
 
 async def iniciar_envio_twitch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-    await update.callback_query.edit_message_reply_markup(reply_markup=None)
-    # Mini tutorial mantido acima, só muda texto de instrução
-    tutorial = (
-        "👣 *Passo 1* — Crie um aplicativo na Twitch:\n"
-        "https://dev.twitch.tv/console/apps\n\n"
-        "Use:\n- Name: Clipador\n- Redirect URL: `https://clipador.com.br/redirect`\n- Category: Chat Bot\n\n"
-        "Depois envie aqui:\n`ID: abc123`\n`SECRET: def456`\n\n"
-    )
-    instrucoes = "📨 Agora envie suas credenciais conforme instruído acima."
-    await update.callback_query.message.reply_text(text=tutorial, parse_mode="Markdown")
-    msg = await update.callback_query.message.reply_text(text=instrucoes, parse_mode="Markdown")
-    context.user_data["mensagens_para_apagar"] = [msg.message_id]
-    # Limpar mensagens salvas ao entrar nesta etapa
-    for msg_id in context.user_data.get("mensagens_para_apagar", [msg.message_id]):
+
+    # Apagar mensagens antigas
+    for msg_id in context.user_data.get("mensagens_para_apagar", []):
         try:
             await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
         except:
             pass
+    context.user_data["mensagens_para_apagar"] = []
+
+    texto = (
+        "🧩 Agora me diga as credenciais do aplicativo que você criou na Twitch:\n\n"
+        "Envie nesse formato exato:\n\n"
+        "`ID: abc123`\n`SECRET: def456`"
+    )
+    from telegram import ForceReply
+    msg = await context.bot.send_message(
+        chat_id=update.effective_user.id,
+        text=texto,
+        reply_markup=ForceReply(selective=True),
+        parse_mode="Markdown"
+    )
     context.user_data["mensagens_para_apagar"] = [msg.message_id]
     return ESPERANDO_CREDENCIAIS
 
@@ -217,11 +247,12 @@ async def receber_credenciais(update: Update, context: ContextTypes.DEFAULT_TYPE
             twitch_secret = linha.split(":", 1)[1].strip()
 
     if not twitch_id or not twitch_secret or len(twitch_id) < 10 or len(twitch_secret) < 10:
-        msg = await update.message.reply_text(
+        await limpar_e_enviar_nova_etapa(
+            update,
+            context,
             "❌ Formato inválido. Envie no formato:\n\n`ID: sua_client_id`\n`SECRET: seu_client_secret`",
-            parse_mode="Markdown"
+            [],
         )
-        context.user_data.setdefault("mensagens_para_apagar", []).append(msg.message_id)
         return ESPERANDO_CREDENCIAIS
 
     context.user_data["twitch_id"] = twitch_id
@@ -249,21 +280,12 @@ async def receber_credenciais(update: Update, context: ContextTypes.DEFAULT_TYPE
         "twitch_client_secret": twitch_secret
     })
 
-    msg = await update.message.reply_text(
+    texto_etapa = (
         f"✅ Credenciais recebidas!\n\nAgora envie o nome do streamer que deseja monitorar (ex: gaules). *Não use @*.\n\n"
         f"📌 Você pode cadastrar até {limite_streamers} streamers. Slots extras estarão disponíveis futuramente.\n"
-        f"Você pode digitar `/continuar` a qualquer momento para avançar.",
-        parse_mode="Markdown"
+        f"Você pode digitar `/continuar` a qualquer momento para avançar."
     )
-    # Atualiza a lista de mensagens para apagar com apenas a mensagem desta nova etapa
-    context.user_data["mensagens_para_apagar"] = [msg.message_id]
-    # Excluir mensagens da etapa anterior de credenciais
-    for msg_id in context.user_data.get("mensagens_para_apagar", []):
-        try:
-            await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
-        except:
-            pass
-    context.user_data["mensagens_para_apagar"] = [msg.message_id]
+    await limpar_e_enviar_nova_etapa(update, context, texto_etapa, [])
     return ESPERANDO_STREAMERS
 
 async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -275,7 +297,7 @@ async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE):
         indice = int(nome) - 1
         if 0 <= indice < len(streamers):
             removido = streamers.pop(indice)
-            msg = await update.message.reply_text(f"❌ Removido: {removido}")
+            await limpar_e_enviar_nova_etapa(update, context, f"❌ Removido: {removido}", [])
             context.user_data["streamers"] = streamers
             # Atualiza persistência
             if "canal_config" in context.user_data:
@@ -285,23 +307,16 @@ async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             salvar_progresso_configuracao(update.message.from_user.id, etapa="streamers", dados_parciais={
                 "streamers": streamers
             })
-            context.user_data.setdefault("mensagens_para_apagar", []).append(msg.message_id)
             return ESPERANDO_STREAMERS
 
     if len(streamers) >= limite:
-        msg = await update.message.reply_text("❌ Você já atingiu o limite de streamers.")
-        context.user_data.setdefault("mensagens_para_apagar", []).append(msg.message_id)
+        await limpar_e_enviar_nova_etapa(update, context, "❌ Você já atingiu o limite de streamers.", [])
         # Salvar progresso da configuração (etapa streamers)
         from core.database import salvar_progresso_configuracao
         salvar_progresso_configuracao(update.message.from_user.id, etapa="streamers", dados_parciais={
             "streamers": streamers
         })
         # Limpar mensagens antes de ir para a escolha de modo
-        for msg_id in context.user_data.get("mensagens_para_apagar", []):
-            try:
-                await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
-            except:
-                pass
         context.user_data["mensagens_para_apagar"] = []
         return await escolher_modo_monitoramento(update, context)
 
@@ -319,19 +334,14 @@ async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(streamers) < limite:
         lista = "\n".join([f"{i+1}. {s}" for i, s in enumerate(streamers)])
         restante = limite - len(streamers)
-        msg = await update.message.reply_text(
+        texto = (
             f"✅ Adicionado: {nome}\n\nStreamers atuais:\n{lista}\n\n"
             f"Você pode enviar mais {restante}, digite /continuar ou envie o número para remover."
         )
-        context.user_data.setdefault("mensagens_para_apagar", []).append(msg.message_id)
+        await limpar_e_enviar_nova_etapa(update, context, texto, [])
         return ESPERANDO_STREAMERS
     else:
         # Limpar mensagens antes de ir para a escolha de modo
-        for msg_id in context.user_data.get("mensagens_para_apagar", []):
-            try:
-                await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
-            except:
-                pass
         context.user_data["mensagens_para_apagar"] = []
         return await escolher_modo_monitoramento(update, context)
 
@@ -346,13 +356,6 @@ async def escolher_modo_monitoramento(update: Update, context: ContextTypes.DEFA
         except:
             pass
     context.user_data["mensagens_para_apagar"] = []
-    if update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        send = query.edit_message_text
-    else:
-        send = update.message.reply_text
-
     texto = (
         "🧠 *Modos de Monitoramento do Clipador:*\n\n"
         "🤖 *Automático:* O Clipador escolhe o melhor modo.\n"
@@ -366,7 +369,7 @@ async def escolher_modo_monitoramento(update: Update, context: ContextTypes.DEFA
         [InlineKeyboardButton("✅ Selecionar modo", callback_data="escolher_modo")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_streamers")]
     ]
-    await send(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
     return ESCOLHENDO_MODO
 
 async def voltar_streamers(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -401,7 +404,7 @@ async def mostrar_botoes_modos(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("🛠 Manual", callback_data="modo_MANUAL")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_streamers")]
     ]
-    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
     return ESCOLHENDO_MODO
 
 async def salvar_modo_monitoramento(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -439,18 +442,11 @@ async def salvar_modo_monitoramento(update: Update, context: ContextTypes.DEFAUL
         except:
             pass
     context.user_data["mensagens_para_apagar"] = []
-    # NOVO BLOCO: apagar mensagens extras antes de mostrar revisão final
-    for msg_id in context.user_data.get("mensagens_para_apagar", []):
-        try:
-            await context.bot.delete_message(chat_id=query.from_user.id, message_id=msg_id)
-        except:
-            pass
-    context.user_data["mensagens_para_apagar"] = []
     botoes = [
         [InlineKeyboardButton("✅ Confirmar e salvar", callback_data="confirmar_salvar_canal")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_streamers")]
     ]
-    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
     return ESCOLHENDO_MODO
 
 async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):

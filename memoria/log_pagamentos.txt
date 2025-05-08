@@ -107,3 +107,5 @@
 [2025-05-07 01:02:45.119411] {'telegram_id': 1527996001, 'email': 'wendrell.antoneli@gmail.com', 'plano': None, 'status': 'pendente'}
 [2025-05-07 01:03:50.659815] {'telegram_id': 1527996001, 'email': 'wendrell.antoneli@gmail.com', 'plano': 'desconhecido', 'status': 'email_sem_compra'}
 [2025-05-07 01:03:50.661693] {'telegram_id': 1527996001, 'email': 'wendrell.antoneli@gmail.com', 'plano': None, 'status': 'pendente'}
+[2025-05-08 02:11:16.353524] {'telegram_id': 1527996001, 'email': 'wendrell.antoneli@gmail.com', 'plano': 'desconhecido', 'status': 'email_sem_compra'}
+[2025-05-08 02:11:16.354332] {'telegram_id': 1527996001, 'email': 'wendrell.antoneli@gmail.com', 'plano': None, 'status': 'pendente'}
