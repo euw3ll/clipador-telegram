@@ -1,4 +1,8 @@
-async def avancar_para_nova_etapa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botoes: list):
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
+from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
+
+# --- FUNÇÃO MOVIDA PARA CÁ ---
+async def avancar_para_nova_etapa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botoes: list, parse_mode="Markdown", usar_force_reply=False):
     mensagens = context.user_data.get("mensagens_para_apagar", [])
     for msg_id in mensagens:
         try:
@@ -7,10 +11,20 @@ async def avancar_para_nova_etapa(update: Update, context: ContextTypes.DEFAULT_
             pass
     context.user_data["mensagens_para_apagar"] = []
 
-    nova_msg = await update.message.reply_text(texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    if usar_force_reply:
+        nova_msg = await update.message.reply_text(
+            texto,
+            reply_markup=ForceReply(selective=True),
+            parse_mode=parse_mode
+        )
+    else:
+        nova_msg = await update.message.reply_text(
+            texto,
+            reply_markup=InlineKeyboardMarkup(botoes) if botoes else None,
+            parse_mode=parse_mode
+        )
+
     context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
-from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
 from core.database import (
     salvar_email_usuario,
     email_ja_utilizado_por_outro_usuario,
@@ -178,15 +192,13 @@ async def responder_menu_6(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         # Salva o ID da mensagem de botões para poder editar depois
         context.user_data["mensagem_pagamento_id"] = query.message.message_id
-        await query.message.reply_text(
-            text="😎 Beleza! Agora me diga qual e-mail você usou para fazer o pagamento:",
-            reply_markup=ForceReply(selective=True)
-        )
-    else:
-        await update.message.reply_text(
-            "😎 Beleza! Agora me diga qual e-mail você usou para fazer o pagamento:",
-            reply_markup=ForceReply(selective=True)
-        )
+    await avancar_para_nova_etapa(
+        update,
+        context,
+        "😎 Beleza! Agora me diga qual e-mail você usou para fazer o pagamento:",
+        botoes=[],
+        usar_force_reply=True
+    )
     return MENU_6
 
 async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):

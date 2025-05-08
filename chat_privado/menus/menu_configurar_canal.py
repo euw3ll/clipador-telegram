@@ -1,3 +1,24 @@
+import os
+import sqlite3
+import requests
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    CallbackContext, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ConversationHandler, filters, ContextTypes
+)
+from core.ambiente import MERCADO_PAGO_ACCESS_TOKEN
+from core.database import (
+    buscar_configuracao_canal,
+    salvar_progresso_configuracao,
+    limpar_progresso_configuracao,
+    conectar
+)
+from chat_privado.usuarios import get_nivel_usuario
+from core.telethon_criar_canal import criar_canal_telegram
+
+logger = logging.getLogger(__name__)
+
 async def limpar_e_enviar_nova_etapa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botoes: list, parse_mode="Markdown"):
     # Apagar mensagens antigas armazenadas
     for msg_id in context.user_data.get("mensagens_para_apagar", []):
@@ -30,26 +51,6 @@ async def limpar_e_enviar_nova_etapa(update: Update, context: ContextTypes.DEFAU
             parse_mode=parse_mode
         )
         context.user_data["mensagens_para_apagar"] = [nova_msg.message_id]
-import os
-import sqlite3
-import requests
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    CallbackContext, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ConversationHandler, filters, ContextTypes
-)
-from core.ambiente import MERCADO_PAGO_ACCESS_TOKEN
-from core.database import (
-    buscar_configuracao_canal,
-    salvar_progresso_configuracao,
-    limpar_progresso_configuracao,
-    conectar
-)
-from chat_privado.usuarios import get_nivel_usuario
-from core.telethon_criar_canal import criar_canal_telegram
-
-logger = logging.getLogger(__name__)
 
 ESPERANDO_CREDENCIAIS, ESPERANDO_STREAMERS, ESCOLHENDO_MODO = range(3)
 
