@@ -12,7 +12,9 @@ from core.database import (
     buscar_configuracao_canal,
     salvar_progresso_configuracao,
     limpar_progresso_configuracao,
-    conectar
+    conectar,
+    marcar_configuracao_completa,
+    is_configuracao_completa # Importação necessária para a verificação
 )
 from chat_privado.usuarios import get_nivel_usuario
 from core.telethon_criar_canal import criar_canal_telegram
@@ -55,6 +57,19 @@ async def limpar_e_enviar_nova_etapa(update: Update, context: ContextTypes.DEFAU
 ESPERANDO_CREDENCIAIS, ESPERANDO_STREAMERS, ESCOLHENDO_MODO = range(3)
 
 def verificar_status_pagamento(pagamento_id: int) -> str:
+    """
+    Verifica o status de pagamento no Mercado Pago.
+    Esta função parece ser específica para Mercado Pago e não Kirvano.
+    Se você está usando Kirvano, esta função pode ser removida ou adaptada.
+    """
+    # Nota: Esta função parece ser para Mercado Pago. Se você está usando Kirvano,
+    # a lógica de verificação de pagamento deve vir do banco de dados,
+    # que é atualizado pelo webhook da Kirvano.
+    # Se você não usa Mercado Pago, esta função e suas chamadas podem ser removidas.
+    # Mantendo por enquanto para compatibilidade com o código existente.
+    if not MERCADO_PAGO_ACCESS_TOKEN:
+        logger.error("MERCADO_PAGO_ACCESS_TOKEN não configurado. Não é possível verificar pagamento.")
+        return "erro"
     url = f"https://api.mercadopago.com/v1/payments/{pagamento_id}"
     headers = {"Authorization": f"Bearer {MERCADO_PAGO_ACCESS_TOKEN}"}
     try:
@@ -119,10 +134,27 @@ async def verificar_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def menu_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         await update.callback_query.delete_message()
-    except:
+    except Exception:
         pass
+
     query = update.callback_query
     await query.answer()
+    telegram_id = update.effective_user.id
+
+    # Se o usuário é assinante ativo e a configuração não está completa,
+    # limpa o progresso anterior para reiniciar do zero.
+    try:
+        if get_nivel_usuario(telegram_id) == 2 and not is_configuracao_completa(telegram_id):
+            logger.info(f"Reiniciando configuração para o usuário {telegram_id}.")
+            limpar_progresso_configuracao(telegram_id)
+            # Limpa também os dados temporários do user_data para garantir um recomeço limpo
+            context.user_data.pop("twitch_id", None)
+            context.user_data.pop("twitch_secret", None)
+            context.user_data.pop("streamers", None)
+            context.user_data.pop("modo_monitoramento", None)
+            context.user_data.pop("canal_config", None)
+    except Exception as e:
+        logger.error(f"Erro ao tentar reiniciar a configuração para {telegram_id}: {e}")
 
     for msg_id in context.user_data.get("mensagens_para_apagar", []):
         try:
@@ -474,15 +506,19 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
     # Limpar progresso da configuração ao finalizar
     from core.database import limpar_progresso_configuracao
     limpar_progresso_configuracao(telegram_id)
-    atualizar_telegram_id_usuario(telegram_id)
-    await criar_canal_telegram(username=query.from_user.username, telegram_id=telegram_id)
+    # atualizar_telegram_id_usuario(telegram_id) # Não parece ser mais necessário aqui
+    id_canal, link_canal = await criar_canal_telegram(nome_usuario=username, telegram_id=telegram_id)
+    
+    # Salva o link do canal no banco de dados para uso futuro
+    from core.database import salvar_link_canal
+    salvar_link_canal(telegram_id, id_canal, link_canal)
 
     await query.edit_message_text(
         f"✅ Tudo pronto!\n\n"
-        f"📢 Seu canal *Clipador 🎥 @{username}* foi criado com sucesso!\n\n"
+        f"📢 Seu canal exclusivo foi criado com sucesso!\n\n"
         "Você começará a receber clipes automaticamente com base nas suas configurações 🚀",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 Abrir canal", url=f"https://t.me/clipador_{username}")]
+            [InlineKeyboardButton("🚀 Abrir canal", url=link_canal)]
         ]),
         parse_mode="Markdown"
     )
@@ -557,31 +593,6 @@ def configurar_canal_conversa():
         fallbacks=[],
         allow_reentry=True
     )
-
-# Webhook para envio automático
-async def iniciar_configuracao_via_webhook(application, telegram_id):
-    try:
-        texto = (
-            "🎉 *Pagamento confirmado!*\n\n"
-            "Agora vamos configurar seu canal personalizado do Clipador.\n\n"
-            "👣 *Passo 1:* Crie um app na Twitch:\n"
-            "https://dev.twitch.tv/console/apps\n"
-            "- Name: Clipador\n"
-            "- Redirect: https://clipador.com.br/redirect\n"
-            "- Category: Chat Bot\n\n"
-            "Depois envie aqui:\n"
-            "`ID: xxx`\n`SECRET: yyy`\n\n"
-            "👇 Quando estiver pronto:"
-        )
-        botoes = [
-            [InlineKeyboardButton("📨 Enviar dados da Twitch", callback_data="enviar_twitch")],
-            [InlineKeyboardButton("🔙 Voltar ao início", callback_data="menu_0")]
-        ]
-        await application.bot.send_message(chat_id=telegram_id, text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-        return True
-    except Exception as e:
-        print(f"Erro webhook: {e}")
-        return False
 
 # Redirecionador manual para o menu
 async def verificar_callback_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):

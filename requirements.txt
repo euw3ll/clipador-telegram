@@ -20,4 +20,5 @@ typing_extensions==4.13.2
 tzdata==2025.2
 tzlocal==5.3.1
 urllib3==2.3.0
-flask
+flask==2.2.5
+telethon==1.40.0

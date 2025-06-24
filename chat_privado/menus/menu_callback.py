@@ -5,6 +5,7 @@ from telegram.constants import ParseMode
 from core.pagamento import consultar_pagamento
 from chat_privado.menus.menu_configurar_canal import menu_configurar_canal, responder_menu_7_configurar
 from core.database import atualizar_telegram_id_simples
+from chat_privado.usuarios import get_nivel_usuario # Importar get_nivel_usuario
 from core.database import buscar_configuracao_canal
 
 from telegram.error import BadRequest
@@ -16,7 +17,8 @@ def atualizar_usuario_contexto(update, context):
 
 # menu_0 → Menu inicial (roteador)
 async def responder_menu_0(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nivel = context.user_data.get("nivel", 1)
+    # Sempre obter o nível mais atualizado do banco de dados
+    nivel = get_nivel_usuario(update.effective_user.id)
     tipo_plano = context.user_data.get("tipo_plano", "indefinido")
     atualizar_usuario_contexto(update, context)
     if nivel == 2:

@@ -3,19 +3,11 @@ from flask import Flask, request, jsonify
 from threading import Thread
 from core.database import (
     atualizar_status_compra,
-    buscar_telegram_por_email,
-    ativar_usuario_por_telegram_id,
-    salvar_plano_usuario,
-    eh_admin,
     registrar_compra,
-    atualizar_status_pagamento,
     compra_ja_registrada,
-    registrar_evento_webhook,
-    atualizar_plano_usuario,
-    atualizar_telegram_id_por_email  # nova importação
+    registrar_evento_webhook
 )
 import logging
-from chat_privado.menus.menu_configurar_canal import iniciar_configuracao_via_webhook
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,13 +61,16 @@ def webhook_kirvano():
         if not email:
             logging.warning("⚠️ Nenhum e-mail recebido.")
             return jsonify({"error": "email ausente"}), 400
-
-        if status == "APPROVED":
-            logging.info(f"🔎 Verificando se {email} é admin...")
-            # Move buscar_telegram_por_email and related logic after registrar_compra
+        
+        # A única responsabilidade do webhook é registrar a compra no banco.
+        # A lógica de ativação/desativação será feita pelo bot quando o usuário interagir
+        # ou por um processo em segundo plano que verifica o banco.
+        if status in ["APPROVED", "REFUNDED", "EXPIRED", "CHARGEBACK", "PENDING"]:
             try:
+                # O telegram_id é nulo aqui porque o webhook não sabe o telegram_id do usuário.
+                # Ele será vinculado depois pelo bot quando o usuário informar o e-mail.
                 registrar_compra(
-                    telegram_id=None,
+                    telegram_id=None, # Não temos o telegram_id neste ponto
                     email=email,
                     plano=nome_plano,
                     metodo_pagamento=metodo_pagamento,
@@ -86,50 +81,11 @@ def webhook_kirvano():
                     nome_completo=nome_completo,
                     telefone=telefone
                 )
-                logging.info("📦 Compra registrada com sucesso.")
+                logging.info(f"📦 Compra com status '{status}' registrada para o e-mail {email}.")
             except Exception as e:
-                logging.error(f"❌ Erro ao registrar compra: {e}")
-
-            logging.info(f"🔍 Procurando usuário com e-mail: {email}")
-            telegram_id = buscar_telegram_por_email(email.strip().lower())
-            logging.info(f"📢 Resultado da busca: {telegram_id}")
-            if not telegram_id:
-                logging.warning(f"⚠️ Nenhum usuário encontrado para o e-mail: {email}")
-                return jsonify({"ok": True, "pendente_vinculo": True}), 200
-            atualizar_telegram_id_por_email(email.strip().lower(), telegram_id)
-
-            resultado_admin = eh_admin(telegram_id)
-            logging.info(f"Resultado de eh_admin: {resultado_admin}")
-            if metodo_pagamento == "FREE" and not resultado_admin:
-                logging.warning("❌ Acesso negado: produto gratuito disponível apenas para administradores.")
-                return jsonify({"error": "produto gratuito é exclusivo para administradores"}), 403
-
-            try:
-                ativar_usuario_por_telegram_id(telegram_id)
-                logging.info("🟢 Usuário ativado com sucesso.")
-                iniciar_configuracao_via_webhook(telegram_id)
-            except Exception as e:
-                logging.error(f"❌ Erro ao ativar usuário: {e}")
-
-            try:
-                atualizar_plano_usuario(telegram_id, nome_plano)
-                logging.info("🔁 Plano do usuário atualizado com sucesso.")
-                atualizar_status_pagamento(telegram_id, "aprovado")
-                logging.info("📌 Status de pagamento atualizado para aprovado.")
-                logging.info(f"✅ Usuário {telegram_id} ativado com plano: {nome_plano}")
-            except Exception as e:
-                logging.error(f"❌ Erro ao salvar plano: {e}")
-
-        elif status in ["REFUNDED", "EXPIRED", "CHARGEBACK"]:
-            atualizar_status_compra(sale_id, status)
-            telegram_id = buscar_telegram_por_email(email.strip().lower())
-            if telegram_id:
-                from core.database import desativar_usuario_por_telegram_id
-                desativar_usuario_por_telegram_id(telegram_id)
-                atualizar_status_pagamento(telegram_id, status.lower())
-                logging.warning(f"🔻 Usuário {telegram_id} desativado devido ao status: {status}")
-            logging.warning(f"⚠️ Pagamento não válido. Status: {status}")
-            return jsonify({"ok": True, "status": status}), 200
+                logging.error(f"❌ Erro ao registrar compra no banco de dados: {e}")
+                # Se o registro no DB falhar, retornamos 500 para a Kirvano saber que algo deu errado.
+                return jsonify({"error": "database error", "message": str(e)}), 500
 
         logging.info("✅ Webhook finalizado com sucesso.")
         return jsonify({"ok": True}), 200

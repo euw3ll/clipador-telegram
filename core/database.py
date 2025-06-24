@@ -22,7 +22,6 @@ def criar_tabelas():
             tipo_plano TEXT DEFAULT NULL,
             status_pagamento TEXT DEFAULT 'pendente',
             plano_assinado TEXT DEFAULT NULL,
-            is_admin INTEGER DEFAULT 0,
             configuracao_finalizada INTEGER DEFAULT 0
         )
     """)
@@ -32,6 +31,8 @@ def criar_tabelas():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id INTEGER UNIQUE NOT NULL,
             id_canal_telegram TEXT,
+            twitch_client_id TEXT,
+            twitch_client_secret TEXT,
             link_canal_telegram TEXT,
             streamers_monitorados TEXT,
             modo_monitoramento TEXT,
@@ -40,6 +41,31 @@ def criar_tabelas():
         )
     """)
 
+    conn.commit()
+    conn.close()
+
+def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo):
+    conn = conectar()
+    cursor = conn.cursor()
+    streamers_str = ",".join(streamers)
+
+    # Verifica se já existe uma configuração para este usuário
+    cursor.execute("SELECT * FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
+    existe = cursor.fetchone()
+
+    if existe:
+        # Atualiza a configuração existente
+        cursor.execute("""
+            UPDATE configuracoes_canal SET
+            twitch_client_id = ?, twitch_client_secret = ?, streamers_monitorados = ?, modo_monitoramento = ?
+            WHERE telegram_id = ?
+        """, (twitch_client_id, twitch_client_secret, streamers_str, modo, telegram_id))
+    else:
+        # Insere uma nova configuração
+        cursor.execute("""
+            INSERT INTO configuracoes_canal (telegram_id, twitch_client_id, twitch_client_secret, streamers_monitorados, modo_monitoramento)
+            VALUES (?, ?, ?, ?, ?)
+        """, (telegram_id, twitch_client_id, twitch_client_secret, streamers_str, modo))
     conn.commit()
     conn.close()
 
@@ -130,17 +156,10 @@ def revogar_usuario_por_email(email):
 def definir_admin(user_id):
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET is_admin = 1 WHERE telegram_id = ?", (user_id,))
+    # Define o usuário como admin atualizando seu nível para 999
+    cursor.execute("UPDATE usuarios SET nivel = 999 WHERE telegram_id = ?", (user_id,))
     conn.commit()
     conn.close()
-
-def eh_admin(user_id):
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute("SELECT is_admin FROM usuarios WHERE telegram_id = ?", (user_id,))
-    resultado = cursor.fetchone()
-    conn.close()
-    return resultado and resultado[0] == 1
 
 def salvar_plano_usuario(user_id, plano):
     conn = conectar()
@@ -159,10 +178,10 @@ def obter_plano_usuario(user_id):
 def is_usuario_admin(telegram_id):
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("SELECT is_admin FROM usuarios WHERE telegram_id = ?", (telegram_id,))
+    cursor.execute("SELECT nivel FROM usuarios WHERE telegram_id = ?", (telegram_id,))
     resultado = cursor.fetchone()
     conn.close()
-    return resultado and resultado[0] == 1
+    return resultado and resultado[0] == 999
 
 def criar_tabela_compras():
     conn = conectar()
@@ -195,16 +214,37 @@ def registrar_compra(telegram_id, email, plano, metodo_pagamento, status, sale_i
     """, (telegram_id, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id, nome_completo, telefone))
     conexao.commit()
 
-    # Atualiza status_pagamento e plano_assinado do usuário
-    cursor.execute("UPDATE usuarios SET status_pagamento = ?, plano_assinado = ? WHERE telegram_id = ?", (status, plano, telegram_id))
-    conexao.commit()
-
-    # Se a compra estiver aprovada e ainda não tiver telegram_id, atualiza agora
-    if status == "aprovado" and telegram_id:
-        cursor.execute("UPDATE compras SET telegram_id = ? WHERE email = ? AND telegram_id IS NULL", (telegram_id, email))
-        conexao.commit()
-
     conexao.close()
+
+def vincular_compra_e_ativar_usuario(telegram_id: int, email: str, plano: str, status: str):
+    """
+    Vincula uma compra aprovada ao telegram_id do usuário e ativa o usuário.
+    Esta função deve ser chamada pelo bot, não pelo webhook.
+    """
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # 1. Vincula o telegram_id à compra na tabela 'compras' se ainda não estiver vinculado
+    # Isso é importante para compras que chegam via webhook antes do usuário informar o e-mail
+    cursor.execute("""
+        UPDATE compras SET telegram_id = ?
+        WHERE email = ? AND status = 'APPROVED' AND telegram_id IS NULL
+    """, (telegram_id, email))
+
+    # 2. Atualiza o e-mail do usuário na tabela 'usuarios'
+    cursor.execute("UPDATE usuarios SET email = ? WHERE telegram_id = ?", (email, telegram_id))
+
+    # 3. Atualiza o status de pagamento, plano assinado e nível do usuário na tabela 'usuarios'
+    cursor.execute("""
+        UPDATE usuarios SET
+            status_pagamento = ?,
+            plano_assinado = ?,
+            nivel = 2 -- Nível 2 para assinante ativo
+        WHERE telegram_id = ?
+    """, (status, plano, telegram_id))
+
+    conn.commit()
+    conn.close()
 
 def compra_aprovada(email):
     conn = conectar()
@@ -247,6 +287,7 @@ criar_tabela_compras()
 # Função para buscar o pagamento mais recente por email na tabela compras
 def buscar_pagamento_por_email(email):
     conn = conectar()
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute(
         "SELECT * FROM compras WHERE email = ? ORDER BY criado_em DESC LIMIT 1",
@@ -260,6 +301,7 @@ def buscar_pagamento_por_email(email):
 # Função para buscar a compra aprovada mais recente por email na tabela compras
 def buscar_compra_aprovada_por_email(email):
     conn = conectar()
+    conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     cursor.execute("""
         SELECT * FROM compras
@@ -377,19 +419,6 @@ def buscar_compras_aprovadas_nao_vinculadas(email):
     return resultado
 
 
-# Função para atualizar o status de uma compra específica vinculada ao telegram_id e email
-
-def atualizar_status_compra_telegram(telegram_id, email, novo_status):
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE compras SET status = ? WHERE email = ? AND telegram_id = ?",
-        (novo_status, email, telegram_id)
-    )
-    conn.commit()
-    conn.close()
-
-
 # Função para verificar se o canal do usuário está configurado
 
 def verificar_configuracao_canal(telegram_id):
@@ -416,10 +445,24 @@ def buscar_configuracao_canal(telegram_id):
         return dict(zip(colunas, resultado))
     return None
 
+def salvar_link_canal(telegram_id, id_canal, link_canal):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE configuracoes_canal SET id_canal_telegram = ?, link_canal_telegram = ? WHERE telegram_id = ?", (id_canal, link_canal, telegram_id))
+    conn.commit()
+    conn.close()
+
 def marcar_configuracao_completa(telegram_id):
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute("UPDATE usuarios SET configuracao_finalizada = 1 WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+
+def marcar_configuracao_completa(telegram_id, status: bool):
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET configuracao_finalizada = ? WHERE telegram_id = ?", (1 if status else 0, telegram_id))
     conn.commit()
     conn.close()
 
