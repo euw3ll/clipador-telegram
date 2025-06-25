@@ -1,12 +1,12 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
-from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, filters, CommandHandler
 
 # --- FUNÇÃO MOVIDA PARA CÁ ---
 async def avancar_para_nova_etapa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botoes: list, parse_mode="Markdown", usar_force_reply=False):
-    mensagens = context.user_data.get("mensagens_para_apagar", [])
-    for msg_id in mensagens:
-        try:
-            await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
+    mensagens_para_apagar = context.user_data.get("mensagens_para_apagar", [])
+    for msg_id in mensagens_para_apagar:
+        try: # Tenta apagar mensagens anteriores
+            await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id) 
         except Exception:
             pass
     context.user_data["mensagens_para_apagar"] = []
@@ -33,13 +33,11 @@ async def avancar_para_nova_etapa(update: Update, context: ContextTypes.DEFAULT_
 
     context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
 from core.database import (
-    salvar_email_usuario,
-    email_ja_utilizado_por_outro_usuario,
-    ativar_usuario_por_telegram_id,
+    adicionar_usuario, # Added for pular_pagamento_admin
     salvar_plano_usuario,
     is_usuario_admin,
+    email_ja_utilizado_por_outro_usuario, # Adicionado importação
     buscar_pagamento_por_email, # Usado para buscar detalhes da compra
-    atualizar_nivel_usuario, # Mantido para casos específicos, mas preferir vincular_compra_e_ativar_usuario
     registrar_log_pagamento,
     vincular_email_usuario,
     vincular_compra_e_ativar_usuario # Nova função para ativar usuário e vincular compra
@@ -207,13 +205,44 @@ async def responder_menu_6(update: Update, context: ContextTypes.DEFAULT_TYPE):
         botoes=[],
         usar_force_reply=True
     )
-    return MENU_6
+    return PEDIR_EMAIL
+
+async def pular_pagamento_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Comando de admin para simular um pagamento aprovado e avançar o funil.
+    Exclusivo para administradores.
+    """
+    telegram_id = update.effective_user.id
+    if not is_usuario_admin(telegram_id):
+        await update.message.reply_text("❌ Este comando é exclusivo para administradores.")
+        return ConversationHandler.END # End conversation for non-admins
+
+    # Simula um pagamento aprovado
+    email = f"admin_skip_{telegram_id}@clipador.com" # Email dummy para admin skips
+    plano_real = context.user_data.get("plano_esperado", "Mensal Solo") # Assume o plano que estava sendo processado
+    
+    # Garante que o usuário exista no DB e tenha um email vinculado para vincular_compra_e_ativar_usuario
+    adicionar_usuario(telegram_id, update.effective_user.first_name)
+    vincular_email_usuario(telegram_id, email)
+
+    try:
+        vincular_compra_e_ativar_usuario(telegram_id, email, plano_real, "approved")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erro ao simular ativação da assinatura para admin: {e}")
+        return ConversationHandler.END
+
+    await avancar_para_nova_etapa(
+        update, context,
+        f"✅ Pagamento simulado com sucesso para admin!\n\nPlano assinado: *{plano_real}*.\nSeu acesso foi liberado. Agora vamos configurar seu canal privado.",
+        [[InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]]
+    )
+    return ConversationHandler.END
 
 async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.gateway.kirvano import verificar_status_compra_para_ativacao # Função correta
 
     email = update.message.text.strip()
-    vincular_email_usuario(update.effective_user.id, email)
+    vincular_email_usuario(update.effective_user.id, email) # Mantido, pois associa o email ao usuário no DB
 
     # Apaga a mensagem anterior com os botões, se possível
     plano_esperado = context.user_data.get("plano_esperado", "Mensal Solo")
@@ -231,7 +260,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
             ])
         )
-        return MENU_6
+        return PEDIR_EMAIL
 
     await update.message.chat.send_action(action="typing")
 
@@ -245,7 +274,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
             ])
         )
-        return MENU_6
+        return PEDIR_EMAIL
 
     try:
         # Busca a compra mais recente para o e-mail
@@ -263,7 +292,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
             ])
         )
-        return MENU_6
+        return PEDIR_EMAIL
 
     # Lógica centralizada de tratamento de status
     if status_compra == "approved":
@@ -276,7 +305,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         [InlineKeyboardButton("🔙 Voltar", callback_data="menu_2")]
                     ])
                 )
-                return MENU_6
+                return PEDIR_EMAIL
             print(f"[DEBUG] Admin {telegram_id} ativando acesso gratuito com e-mail {email}.")
         
         # Verifica se o plano adquirido é diferente do selecionado (apenas para compras pagas)
@@ -290,7 +319,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
                 ])
             )
-            return MENU_6
+            return PEDIR_EMAIL
 
         # Ativa o usuário
         print(f"[DEBUG] Pagamento aprovado para {email}, ativando usuário {telegram_id}...")
@@ -301,7 +330,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"❌ Erro ao ativar sua assinatura: {e}\nPor favor, tente novamente ou contate o suporte.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")], [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]])
             )
-            return MENU_6
+            return PEDIR_EMAIL
         
         # Mensagem de sucesso e continuação
         await avancar_para_nova_etapa(
@@ -343,7 +372,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(texto_pendente, reply_markup=InlineKeyboardMarkup(botoes))
         else:
             await update.message.reply_text(texto_pendente, reply_markup=InlineKeyboardMarkup(botoes))
-        return MENU_6
+        return PEDIR_EMAIL
 
     elif status_compra == "not_found":
         print("[DEBUG] Pagamento não encontrado.")
@@ -354,7 +383,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
             ])
         )
-        return MENU_6
+        return PEDIR_EMAIL
 
     else: # Status como REFUNDED, EXPIRED, CHARGEBACK, ou qualquer outro não tratado
         print(f"[DEBUG] Pagamento com status não aprovado: {status_compra}")
@@ -367,7 +396,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]
             ])
         )
-    return MENU_6
+    return PEDIR_EMAIL
 
 async def pular_configuracao_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Encerra a conversa de configuração para o admin configurar depois."""
@@ -381,18 +410,15 @@ async def pular_configuracao_callback(update: Update, context: ContextTypes.DEFA
     )
     return ConversationHandler.END
 
-from core.database import marcar_configuracao_completa # Nova importação
-
-MENU_6 = 6
-
 from telegram.ext import CallbackQueryHandler
 # HANDLER PARA MENU DE CONFIGURAÇÃO DO CANAL
 
 pagamento_conversation_handler = ConversationHandler(
     entry_points=[CallbackQueryHandler(responder_menu_6, pattern="^menu_6$")],
     states={
-        MENU_6: [
+        PEDIR_EMAIL: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, receber_email),
+            CommandHandler("pular", pular_pagamento_admin), # Adiciona o comando /pular para admins
             CallbackQueryHandler(pular_configuracao_callback, pattern="^pular_configuracao$")
         ],
     },

@@ -1,12 +1,20 @@
 from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
+import logging
+import traceback # Import para logging detalhado de erros
 
 from chat_privado.usuarios import registrar_usuario
 
 from chat_privado.menus.menu_configurar_canal import configurar_canal_conversa
-
+from chat_privado.menus.menu_comandos import skip_configuracao_admin_command # Import the renamed command
 # Menus principais
 from chat_privado.menus.menu_inicial import responder_inicio, voltar_ao_menu
 from chat_privado.menus.menu_comandos import responder_help
+from chat_privado.admin_commands import (
+    reset_user_command, 
+    admin_command, 
+    create_channel_command, 
+    delete_channel_command
+)
 
 # Menus interativos
 from chat_privado.menus.menu_callback import (
@@ -23,13 +31,12 @@ from chat_privado.menus.menu_callback import (
 # Menus de pagamento
 from chat_privado.menus import menu_pagamento
 from chat_privado.menus.menu_pagamento import (
+    pagamento_conversation_handler,
     responder_menu_5_mensal,
     responder_menu_5_plus,
     responder_menu_5_anual,
     roteador_pagamento,
-    responder_menu_6,
-    PEDIR_EMAIL,
-    receber_email
+    responder_menu_6
 )
 
 def registrar_handlers(application):
@@ -42,6 +49,13 @@ def registrar_handlers(application):
         )
     )
     application.add_handler(CommandHandler("help", responder_help))
+
+    # Comandos de Admin
+    application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("resetuser", reset_user_command))
+    application.add_handler(CommandHandler("skipconfig", skip_configuracao_admin_command)) # Register the renamed command
+    application.add_handler(CommandHandler("createchannel", create_channel_command))
+    application.add_handler(CommandHandler("delchannel", delete_channel_command))
 
     # 🧭 Comandos diretos equivalentes aos botões
     application.add_handler(CommandHandler("menu", voltar_ao_menu))
@@ -78,16 +92,7 @@ def registrar_handlers(application):
     application.add_handler(CallbackQueryHandler(menu_configurar_canal, pattern="^abrir_configurar_canal$"))
 
     # Conversa para receber o e-mail do cliente
-    application.add_handler(
-        ConversationHandler(
-            entry_points=[CallbackQueryHandler(responder_menu_6, pattern="^menu_6$")],
-            states={PEDIR_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_email)]},
-            fallbacks=[MessageHandler(filters.ALL, receber_email)],
-        )
-    )
-
-    # Tratamento direto para "Tentar novamente" no menu_6 após erro
-    application.add_handler(CallbackQueryHandler(responder_menu_6, pattern="^menu_6$"))
+    application.add_handler(pagamento_conversation_handler)
 
     # Conversa para configuração do canal após pagamento validado
     application.add_handler(configurar_canal_conversa())

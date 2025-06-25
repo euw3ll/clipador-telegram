@@ -29,15 +29,14 @@ async def responder_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/meusdados – Ver sua assinatura atual\n"
             "/alterarstreamer – Trocar streamer monitorado (1x/mês)\n"
         )
-    elif nivel == 999: # Corrigido para o nível de admin correto
+    elif is_usuario_admin(user_id): # Agora verifica diretamente se é admin
         texto = (
             f"🛠️ *Ajuda Administrativa – Olá {nome}!*\n\n"
-            "Comandos administrativos:\n"
+            "Comandos administrativos (use /admin para o painel completo):\n"
             "/menu – Acessar o menu principal\n"
-            "/usuarios – Listar usuários cadastrados\n"
-            "/pular - Pular a etapa de configuração de canal (se pendente)\n"
-            "/criarcanal – Criar novo canal monitorado\n"
-            "/broadcast – Enviar mensagem para todos\n"
+            "/admin – Abrir o painel de administração\n"
+            # Você pode listar outros comandos gerais de admin aqui se existirem,
+            # mas o gerenciamento específico de usuários/canais está agora sob /admin
         )
     else:
         texto = (
@@ -48,7 +47,7 @@ async def responder_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(texto, parse_mode="Markdown")
 
-async def pular_configuracao_comando(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def skip_configuracao_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Permite que um admin pule a configuração do canal se estiver pendente."""
     telegram_id = update.effective_user.id
 

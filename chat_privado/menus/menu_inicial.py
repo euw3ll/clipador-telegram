@@ -32,14 +32,6 @@ async def responder_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     handlers = {
         1: (texto_padrao_novo_usuario, botoes_padrao),
         4: (texto_expirado, botoes_padrao),
-        999: (
-            f"🛠️ Eita porr@, a administração do grupo chegou...\n\n"
-            f"E aí {nome}, quer fazer o que hoje? Use o /help para ver as opções.",
-            [
-                [InlineKeyboardButton("👤 Gerenciar usuários", callback_data="menu_admin_usuarios")],
-                [InlineKeyboardButton("📊 Ver estatísticas", callback_data="menu_admin_stats")],
-            ]
-        ),
     }
 
     # Define texto e botões com base no nível

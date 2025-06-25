@@ -18,11 +18,11 @@ def criar_tabelas():
             telegram_id INTEGER UNIQUE NOT NULL,
             nome TEXT,
             nivel INTEGER DEFAULT 1,
-            email TEXT,
-            tipo_plano TEXT DEFAULT NULL,
             status_pagamento TEXT DEFAULT 'pendente',
             plano_assinado TEXT DEFAULT NULL,
-            configuracao_finalizada INTEGER DEFAULT 0
+            configuracao_finalizada INTEGER DEFAULT 0,
+            data_expiracao TIMESTAMP,
+            status_canal TEXT DEFAULT 'ativo' -- Ex: ativo, removido, desativado
         )
     """)
 
@@ -93,43 +93,6 @@ def obter_nivel_usuario(user_id):
     conn.close()
     return resultado[0] if resultado else 1
 
-def atualizar_nivel_usuario(user_id, novo_nivel):
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "UPDATE usuarios SET nivel = ? WHERE telegram_id = ?",
-        (novo_nivel, user_id)
-    )
-
-    conn.commit()
-    conn.close()
-
-def listar_usuarios():
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM usuarios")
-    resultado = cursor.fetchall()
-
-    conn.close()
-    return resultado
-
-def ativar_usuario_por_telegram_id(telegram_id):
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("UPDATE usuarios SET tipo_plano = 'mensal' WHERE telegram_id = ?", (telegram_id,))
-    conn.commit()
-    conn.close()
-
-def salvar_email_usuario(telegram_id, email):
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET email = ? WHERE telegram_id = ?", (email, telegram_id))
-    conn.commit()
-    conn.close()
-
 def buscar_telegram_por_email(email):
     conn = conectar()
     cursor = conn.cursor()
@@ -153,14 +116,6 @@ def revogar_usuario_por_email(email):
     conn.commit()
     conn.close()
 
-def definir_admin(user_id):
-    conn = conectar()
-    cursor = conn.cursor()
-    # Define o usuário como admin atualizando seu nível para 999
-    cursor.execute("UPDATE usuarios SET nivel = 999 WHERE telegram_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-
 def salvar_plano_usuario(user_id, plano):
     conn = conectar()
     cursor = conn.cursor()
@@ -176,12 +131,11 @@ def obter_plano_usuario(user_id):
     conn.close()
     return resultado[0] if resultado else None
 def is_usuario_admin(telegram_id):
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute("SELECT nivel FROM usuarios WHERE telegram_id = ?", (telegram_id,))
-    resultado = cursor.fetchone()
-    conn.close()
-    return resultado and resultado[0] == 999
+    """
+    Verifica se o telegram_id está na lista de administradores definida em configuracoes.py.
+    """
+    from configuracoes import ADMIN_TELEGRAM_IDS
+    return telegram_id in ADMIN_TELEGRAM_IDS
 
 def criar_tabela_compras():
     conn = conectar()
@@ -221,6 +175,8 @@ def vincular_compra_e_ativar_usuario(telegram_id: int, email: str, plano: str, s
     Vincula uma compra aprovada ao telegram_id do usuário e ativa o usuário.
     Esta função deve ser chamada pelo bot, não pelo webhook.
     """
+    from datetime import datetime, timedelta
+
     conn = conectar()
     cursor = conn.cursor()
 
@@ -234,14 +190,21 @@ def vincular_compra_e_ativar_usuario(telegram_id: int, email: str, plano: str, s
     # 2. Atualiza o e-mail do usuário na tabela 'usuarios'
     cursor.execute("UPDATE usuarios SET email = ? WHERE telegram_id = ?", (email, telegram_id))
 
-    # 3. Atualiza o status de pagamento, plano assinado e nível do usuário na tabela 'usuarios'
+    # 3. Calcula a data de expiração e atualiza o status do usuário
+    if "Anual" in plano:
+        data_expiracao = datetime.now() + timedelta(days=365)
+    else:  # Assume mensal para todos os outros
+        data_expiracao = datetime.now() + timedelta(days=31) # 31 para dar uma margem
+
     cursor.execute("""
         UPDATE usuarios SET
             status_pagamento = ?,
             plano_assinado = ?,
-            nivel = 2 -- Nível 2 para assinante ativo
+            nivel = 2, -- Nível 2 para assinante ativo
+            data_expiracao = ?,
+            status_canal = 'ativo'
         WHERE telegram_id = ?
-    """, (status, plano, telegram_id))
+    """, (status, plano, data_expiracao, telegram_id))
 
     conn.commit()
     conn.close()
@@ -275,6 +238,47 @@ def atualizar_status_compra(email, novo_status):
         "UPDATE compras SET status = ? WHERE email = ?",
         (novo_status, email)
     )
+    conn.commit()
+    conn.close()
+
+def desativar_assinatura_por_email(email: str, novo_status: str = 'expirado'):
+    """
+    Desativa a assinatura de um usuário com base no e-mail.
+    Atualiza o nível para 4 (expirado), status de pagamento e status do canal.
+    Retorna o telegram_id do usuário para ações subsequentes (ex: remoção do canal).
+    """
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # Primeiro, busca o telegram_id do usuário ativo com este e-mail
+    cursor.execute("SELECT telegram_id FROM usuarios WHERE LOWER(email) = ? AND nivel = 2", (email.lower(),))
+    resultado = cursor.fetchone()
+    
+    if not resultado:
+        conn.close()
+        return None # Nenhum usuário ativo encontrado com este e-mail
+
+    telegram_id = resultado[0]
+
+    # Nível 4 é para assinaturas expiradas/canceladas
+    cursor.execute("""
+        UPDATE usuarios
+        SET nivel = 4, status_pagamento = ?, status_canal = 'removido'
+        WHERE telegram_id = ?
+    """, (novo_status, telegram_id))
+    
+    conn.commit()
+    conn.close()
+    
+    return telegram_id
+
+def atualizar_data_expiracao(email: str, nova_data: 'datetime'):
+    """Atualiza a data de expiração e reativa o usuário caso esteja com nível 4."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE usuarios SET data_expiracao = ?, nivel = 2, status_canal = 'ativo' WHERE LOWER(email) = ?
+    """, (nova_data, email.lower()))
     conn.commit()
     conn.close()
 
@@ -542,3 +546,58 @@ def limpar_progresso_configuracao(telegram_id):
     cursor.execute("DELETE FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
     conn.commit()
     conn.close()
+
+def resetar_estado_usuario_para_teste(telegram_id: int):
+    """
+    Reseta o estado de um usuário para que ele apareça como um novo usuário
+    para fins de teste.
+    """
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE usuarios SET
+            nivel = 1, status_pagamento = 'pendente', plano_assinado = NULL,
+            configuracao_finalizada = 0, data_expiracao = NULL, status_canal = NULL
+        WHERE telegram_id = ?
+    """, (telegram_id,))
+    conn.commit()
+    conn.close()
+    deletar_configuracao_canal(telegram_id) # Garante que a configuração do canal também seja removida
+
+def buscar_usuarios_ativos_configurados():
+    """
+    Busca todos os usuários que são assinantes ativos (nível 2) e que
+    finalizaram a configuração do canal. Retorna uma lista de dicionários
+    com os dados da configuração.
+    """
+    conn = conectar()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.* FROM configuracoes_canal c
+        JOIN usuarios u ON c.telegram_id = u.telegram_id
+        WHERE u.nivel = 2 AND u.configuracao_finalizada = 1
+    """)
+    resultados = cursor.fetchall()
+    conn.close()
+    
+    # Converte os resultados (sqlite3.Row) para dicionários
+    return [dict(row) for row in resultados]
+
+def deletar_configuracao_canal(telegram_id: int):
+    """Remove a linha de configuração de um usuário da tabela configuracoes_canal."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+
+def buscar_usuario_por_id(telegram_id: int):
+    """Busca os dados de um usuário pelo seu telegram_id."""
+    conn = conectar()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM usuarios WHERE telegram_id = ?", (telegram_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+    return dict(resultado) if resultado else None

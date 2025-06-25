@@ -1,111 +1,90 @@
-import os
 from flask import Flask, request, jsonify
-from threading import Thread
-from core.database import (
-    atualizar_status_compra,
-    registrar_compra,
-    compra_ja_registrada,
-    registrar_evento_webhook
-)
-import logging
+import os
+import asyncio
+from datetime import datetime, timedelta
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+# Adicionar o path do projeto para que os imports funcionem
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from core.database import desativar_assinatura_por_email, buscar_configuracao_canal, atualizar_data_expiracao
+from core.telethon_gerenciar_canal import remover_usuario_do_canal
+from core.ambiente import KIRVANO_TOKEN
 
 app = Flask(__name__)
-WEBHOOK_TOKEN = "clipador2024secure"
 
-@app.route("/webhook", methods=["POST"])
-def webhook_kirvano():
+# Função para rodar corrotinas a partir de um contexto síncrono (Flask)
+def run_async(coro):
     try:
-        logging.info("⚙️ Início do processamento do webhook Kirvano")
-        import os
-        logging.info(f"📁 Banco em uso: {os.path.abspath('banco/clipador.db')}")
-        logging.info(f"📂 Diretório atual: {os.getcwd()}")
-        headers_recebidos = dict(request.headers)
-        logging.info(f"📩 Headers recebidos: {headers_recebidos}")
-        data = request.json
-        if not data or not isinstance(data, dict):
-            logging.warning("⚠️ Webhook vazio ou inválido.")
-            return jsonify({"error": "payload inválido"}), 400
-        registrar_evento_webhook(data)
-        logging.info(f"📬 Webhook recebido: {data}")
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    return loop.run_until_complete(coro)
 
-        nome_completo = data.get("customer", {}).get("name")
-        telefone = data.get("customer", {}).get("phone_number")
+@app.route('/webhook/kirvano', methods=['POST'])
+def kirvano_webhook():
+    # 1. Validar o token de segurança
+    token_recebido = request.headers.get('X-Kirvano-Token')
+    if not KIRVANO_TOKEN or token_recebido != KIRVANO_TOKEN:
+        print(f"⚠️ Tentativa de acesso ao webhook com token inválido. Recebido: {token_recebido}")
+        return jsonify({"status": "error", "message": "Token inválido"}), 403
 
-        token = headers_recebidos.get("Security-Token")
-        if token != WEBHOOK_TOKEN:
-            logging.warning("🔒 Token inválido recebido no webhook.")
-            return jsonify({"error": "unauthorized"}), 403
+    data = request.json
+    event_type = data.get('event_type')
+    email = data.get('customer', {}).get('email')
+    status = data.get('status')
 
-        sale_id = data.get("sale_id")
-        data_criacao = data.get("created_at")
-        metodo_pagamento = data.get("payment_method") or data.get("payment", {}).get("method")
-        status = data.get("status")
-        email = data.get("customer", {}).get("email") or data.get("contactEmail")
+    if not email:
+        return jsonify({"status": "error", "message": "E-mail não encontrado no payload"}), 400
 
-        # Ignora se já foi registrado e não for email de teste
-        email_teste = email.strip().lower() in ["wendrell.antoneli@gmail.com", "w3lldrop@gmail.com"]
-        if compra_ja_registrada(sale_id) and not email_teste:
-            logging.info("🛑 Compra já registrada anteriormente. Ignorando.")
-            return jsonify({"ok": True, "duplicada": True}), 200
+    print(f"🔔 Webhook recebido: {event_type} para o e-mail {email}")
 
-        produtos = data.get("products", [])
-        # Pega a primeira oferta com nome válido
-        nome_plano = next((p.get("offer_name") for p in produtos if p.get("offer_name")), "Plano desconhecido")
-        offer_id = produtos[0].get("offer_id") if produtos else None
+    # 2. Roteamento de Eventos
+    if event_type in ['subscription.canceled', 'subscription.expired', 'purchase.refunded', 'purchase.chargeback']:
+        handle_subscription_ended(email, status)
 
-        if not email:
-            logging.warning("⚠️ Nenhum e-mail recebido.")
-            return jsonify({"error": "email ausente"}), 400
-        
-        # A única responsabilidade do webhook é registrar a compra no banco.
-        # A lógica de ativação/desativação será feita pelo bot quando o usuário interagir
-        # ou por um processo em segundo plano que verifica o banco.
-        if status in ["APPROVED", "REFUNDED", "EXPIRED", "CHARGEBACK", "PENDING"]:
-            try:
-                # O telegram_id é nulo aqui porque o webhook não sabe o telegram_id do usuário.
-                # Ele será vinculado depois pelo bot quando o usuário informar o e-mail.
-                registrar_compra(
-                    telegram_id=None, # Não temos o telegram_id neste ponto
-                    email=email,
-                    plano=nome_plano,
-                    metodo_pagamento=metodo_pagamento,
-                    status=status,
-                    sale_id=sale_id,
-                    data_criacao=data_criacao,
-                    offer_id=offer_id,
-                    nome_completo=nome_completo,
-                    telefone=telefone
-                )
-                logging.info(f"📦 Compra com status '{status}' registrada para o e-mail {email}.")
-            except Exception as e:
-                logging.error(f"❌ Erro ao registrar compra no banco de dados: {e}")
-                # Se o registro no DB falhar, retornamos 500 para a Kirvano saber que algo deu errado.
-                return jsonify({"error": "database error", "message": str(e)}), 500
+    elif event_type == 'subscription.renewed':
+        plano = data.get('plan', {}).get('name', '')
+        handle_subscription_renewed(email, plano)
+    
+    elif event_type == 'purchase.approved':
+        print(f"INFO: Compra aprovada para {email} registrada via webhook (ação tratada no bot).")
 
-        logging.info("✅ Webhook finalizado com sucesso.")
-        return jsonify({"ok": True}), 200
+    else:
+        print(f"INFO: Evento não tratado recebido: {event_type}")
 
-    except Exception as e:
-        logging.error(f"❌ Erro ao processar webhook: {e}")
-        return jsonify({"error": "erro interno", "mensagem": str(e)}), 500
+    return jsonify({"status": "success"}), 200
 
-@app.route("/", methods=["GET"])
-def index():
-    return "✅ Webhook Kirvano ativo!", 200
+def handle_subscription_ended(email, status):
+    """Lida com o fim de uma assinatura (cancelada, expirada, etc.)."""
+    print(f"Iniciando processo de desativação para {email} (Status: {status})")
+    
+    telegram_id = desativar_assinatura_por_email(email, novo_status=status)
+
+    if not telegram_id:
+        print(f"Usuário com e-mail {email} não encontrado ou já inativo.")
+        return
+
+    config = buscar_configuracao_canal(telegram_id)
+    if config and config.get('id_canal_telegram'):
+        id_canal = int(config['id_canal_telegram'])
+        run_async(remover_usuario_do_canal(id_canal, telegram_id))
+    else:
+        print(f"Usuário {telegram_id} não possui canal configurado para remoção.")
+
+def handle_subscription_renewed(email, plano):
+    """Lida com a renovação de uma assinatura, estendendo a data de expiração."""
+    print(f"Iniciando processo de renovação para {email}")
+    
+    if "Anual" in plano:
+        nova_data = datetime.now() + timedelta(days=365)
+    else: # Assume mensal
+        nova_data = datetime.now() + timedelta(days=31) # 31 para dar uma margem
+    
+    atualizar_data_expiracao(email, nova_data)
+    print(f"Data de expiração para {email} atualizada para {nova_data.strftime('%Y-%m-%d')}")
 
 def iniciar_webhook():
-    port = int(os.environ.get("PORT", 5100))
-    logging.getLogger('werkzeug').setLevel(logging.ERROR)  # Oculta log padrão do Flask
-    logging.info("✅ Webhook Kirvano está rodando com sucesso!")
-    logging.info("📡 Aguardando eventos de pagamento da Kirvano...")
-    logging.info("🌍 Acesse via ngrok ou Render para testes locais")
-    app.run(host="0.0.0.0", port=port)
-    logging.info("🛑 Webhook finalizado.")
-
-if __name__ == "__main__":
-    iniciar_webhook()
+    app.run(host='0.0.0.0', port=5100)

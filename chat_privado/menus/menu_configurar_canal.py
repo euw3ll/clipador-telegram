@@ -13,11 +13,13 @@ from core.database import (
     salvar_progresso_configuracao,
     limpar_progresso_configuracao,
     conectar,
-    marcar_configuracao_completa,
+    marcar_configuracao_completa, # Importação necessária para a verificação
+    salvar_configuracao_canal_completa, # Importação para salvar a configuração final
     is_configuracao_completa # Importação necessária para a verificação
 )
 from chat_privado.usuarios import get_nivel_usuario
 from core.telethon_criar_canal import criar_canal_telegram
+from core.image_utils import gerar_imagem_canal_personalizada
 
 logger = logging.getLogger(__name__)
 
@@ -502,16 +504,27 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
             pass
     context.user_data["mensagens_para_apagar"] = []
 
-    salvar_configuracao_canal(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo)
+    # 1. Gerar a imagem personalizada ANTES de criar o canal
+    await query.edit_message_text("⏳ Gerando imagem de perfil personalizada...")
+    caminho_imagem_personalizada = await gerar_imagem_canal_personalizada(telegram_id, context)
+
+    # 2. Salvar configuração e criar o canal
+    await query.edit_message_text("⏳ Salvando configurações e criando seu canal...")
+    salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo)
     # Limpar progresso da configuração ao finalizar
     from core.database import limpar_progresso_configuracao
     limpar_progresso_configuracao(telegram_id)
     # atualizar_telegram_id_usuario(telegram_id) # Não parece ser mais necessário aqui
-    id_canal, link_canal = await criar_canal_telegram(nome_usuario=username, telegram_id=telegram_id)
+    id_canal, link_canal = await criar_canal_telegram(
+        nome_usuario=username, telegram_id=telegram_id, caminho_imagem=caminho_imagem_personalizada
+    )
     
     # Salva o link do canal no banco de dados para uso futuro
     from core.database import salvar_link_canal
     salvar_link_canal(telegram_id, id_canal, link_canal)
+    
+    # Marca a configuração como completa no banco de dados de usuários
+    marcar_configuracao_completa(telegram_id, True)
 
     await query.edit_message_text(
         f"✅ Tudo pronto!\n\n"
@@ -523,43 +536,6 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
         parse_mode="Markdown"
     )
     return ConversationHandler.END
-
-# Banco local para salvar configurações
-def salvar_configuracao_canal(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo):
-    caminho = os.path.join("banco", "database_canais.db")
-    conn = sqlite3.connect(caminho)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS canais (
-            telegram_id INTEGER PRIMARY KEY,
-            twitch_client_id TEXT,
-            twitch_client_secret TEXT,
-            streamers TEXT,
-            modo TEXT,
-            data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    cursor.execute("""
-        INSERT INTO canais (telegram_id, twitch_client_id, twitch_client_secret, streamers, modo)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(telegram_id) DO UPDATE SET
-            twitch_client_id=excluded.twitch_client_id,
-            twitch_client_secret=excluded.twitch_client_secret,
-            streamers=CASE
-                WHEN (strftime('%s','now') - strftime('%s',data_criacao)) < 3600 THEN excluded.streamers
-                ELSE canais.streamers
-            END,
-            modo=excluded.modo
-    """, (
-        telegram_id,
-        twitch_client_id,
-        twitch_client_secret,
-        ",".join(streamers),
-        modo
-    ))
-    conn.commit()
-    conn.close()
 
 def atualizar_telegram_id_usuario(telegram_id):
     from core.database import conectar
