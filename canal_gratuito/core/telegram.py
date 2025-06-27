@@ -62,8 +62,8 @@ def atualizar_descricao_telegram(minimo_clipes, intervalo_segundos, quantidade_s
 
 def enviar_mensagem_promocional(chat_id=TELEGRAM_CHAT_ID):
     mensagem = (
-        "💸 <b>Quer um canal monitorando seus Streamers</b>"
-        " e fazer R$700 toda semana clipando?\n\n"
+        "<b>🤑 Transforme clipes em dinheiro!</b>\n"
+        "Com o Clipador, você tem acesso aos melhores clipes em tempo real, prontos para você monetizar.\n\n"
         "Garanta agora 👉 @ClipadorBot"
     )
     enviar_mensagem(mensagem, chat_id=chat_id)

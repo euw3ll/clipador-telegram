@@ -3,29 +3,23 @@ from configuracoes import MODO_MONITORAMENTO
 
 # Modos antigos (mantidos apenas para uso futuro nos canais privados)
 MODOS_MONITORAMENTO = {
-    "MODO_LOUCO": {
-        "min_clipes": [1, 2, 3, 3],
-        "intervalo_segundos": 150,
-        "frequencia_monitoramento": 15,
-    },
-    "MODO_PADRAO": {
-        "min_clipes": [2, 3, 4, 5],
-        "intervalo_segundos": 90,
-        "frequencia_monitoramento": 30,
-    },
-    "MODO_CIRURGICO": {
-        "min_clipes": [3, 4, 5, 6],
-        "intervalo_segundos": 45,
-        "frequencia_monitoramento": 60,
-    },
+    "MODO_LOUCO": {"min_clipes": 2, "intervalo_segundos": 150},
+    "MODO_PADRAO": {"min_clipes": 3, "intervalo_segundos": 90},
+    "MODO_CIRURGICO": {"min_clipes": 5, "intervalo_segundos": 45},
+    # MODO_AUTOMATICO usará o padrão
+    "AUTOMATICO": {"min_clipes": 3, "intervalo_segundos": 90},
 }
 
 # Critério fixo para o canal gratuito
-INTERVALO_SEGUNDOS = 90
-INTERVALO_MONITORAMENTO = 60
+INTERVALO_SEGUNDOS = 120
+INTERVALO_MONITORAMENTO = 30
 MINIMO_CLIPES = 3
 
-def agrupar_clipes_por_proximidade(clipes, intervalo_segundos=30, minimo_clipes=3):
+def agrupar_clipes_por_proximidade(
+    clipes,
+    intervalo_segundos: int,
+    minimo_clipes: int
+):
     clipes_ordenados = sorted(
         clipes,
         key=lambda c: datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))
@@ -62,9 +56,6 @@ def agrupar_clipes_por_proximidade(clipes, intervalo_segundos=30, minimo_clipes=
             usados.update(usados_temp)
 
     return grupos
-
-def identificar_grupos_virais(grupos, minimo_clipes=3):
-    return [grupo for grupo in grupos if len(grupo["clipes"]) >= minimo_clipes]
 
 def get_time_minutes_ago(minutes=5):
     dt = datetime.now(timezone.utc) - timedelta(minutes=minutes)

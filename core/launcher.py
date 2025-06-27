@@ -43,10 +43,9 @@ def iniciar_clipador(validar_variaveis=True):
 
     criar_estado_se_nao_existir()
 
-    print("📺 Iniciando o canal gratuito...")
-
     try:
-        subprocess.Popen([sys.executable, "-m", "canal_gratuito.main"])
+        # A lógica do canal gratuito e do chat privado agora é iniciada em um único processo
+        # para evitar instâncias conflitantes do bot que causam o erro 'telegram.error.Conflict'.
         iniciar_chat_privado()
 
     except KeyboardInterrupt:

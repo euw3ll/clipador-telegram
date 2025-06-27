@@ -33,16 +33,17 @@ async def avancar_para_nova_etapa(update: Update, context: ContextTypes.DEFAULT_
 
     context.user_data.setdefault("mensagens_para_apagar", []).append(nova_msg.message_id)
 from core.database import (
-    adicionar_usuario, # Added for pular_pagamento_admin
+    adicionar_usuario,
     salvar_plano_usuario,
     is_usuario_admin,
     email_ja_utilizado_por_outro_usuario, # Adicionado importação
     buscar_pagamento_por_email, # Usado para buscar detalhes da compra
-    registrar_log_pagamento,
+    registrar_log_pagamento, # Adicionado importação
     vincular_email_usuario,
     vincular_compra_e_ativar_usuario # Nova função para ativar usuário e vincular compra
 )
 from io import BytesIO
+import chat_privado.menus.menu_inicial as menu_inicial # Importa o módulo inteiro
 from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao
 from configuracoes import GATEWAY_PAGAMENTO
 import base64
@@ -104,12 +105,19 @@ async def exibir_opcoes_pagamento(update: Update, context: ContextTypes.DEFAULT_
     else:
         texto += "❌ Gateway de pagamento inválido."
         botoes = [[InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]]
-
-    await query.edit_message_text(
-        text=texto,
-        reply_markup=InlineKeyboardMarkup(botoes),
-        parse_mode="Markdown"
-    )
+    
+    # A mensagem com os botões de pagamento será editada ou substituída.
+    # A função `avancar_para_nova_etapa` (ou similar) na próxima etapa cuidará da limpeza.
+    try:
+        msg = await query.edit_message_text(
+            text=texto,
+            reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode="Markdown"
+        )
+        context.user_data.setdefault("mensagens_para_apagar", []).append(query.message.message_id)
+    except BadRequest:
+        msg = await query.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+        context.user_data.setdefault("mensagens_para_apagar", []).append(msg.message_id)
 
 # GERAÇÃO DE PIX (somente Mercado Pago)
 async def gerar_pagamento_pix(update: Update, context: ContextTypes.DEFAULT_TYPE, plano_nome: str):
@@ -207,33 +215,37 @@ async def responder_menu_6(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return PEDIR_EMAIL
 
-async def pular_pagamento_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def pular_pagamento_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Adiciona 'plano_simulado' como argumento opcional
     """
     Comando de admin para simular um pagamento aprovado e avançar o funil.
     Exclusivo para administradores.
     """
     telegram_id = update.effective_user.id
     if not is_usuario_admin(telegram_id):
-        await update.message.reply_text("❌ Este comando é exclusivo para administradores.")
-        return ConversationHandler.END # End conversation for non-admins
+        # Encerra o funil para não-administradores, sem enviar mensagem.
+        # Se for um comando, responde para o usuário.
+        if update.message:
+            await update.message.reply_text("❌ Você não tem permissão para usar este comando.")
+        return ConversationHandler.END
+
+    plano_simulado = context.args[0] if context.args else "Mensal Plus" # Pega o primeiro argumento ou define um padrão
 
     # Simula um pagamento aprovado
     email = f"admin_skip_{telegram_id}@clipador.com" # Email dummy para admin skips
-    plano_real = context.user_data.get("plano_esperado", "Mensal Solo") # Assume o plano que estava sendo processado
     
     # Garante que o usuário exista no DB e tenha um email vinculado para vincular_compra_e_ativar_usuario
     adicionar_usuario(telegram_id, update.effective_user.first_name)
     vincular_email_usuario(telegram_id, email)
 
     try:
-        vincular_compra_e_ativar_usuario(telegram_id, email, plano_real, "approved")
+        vincular_compra_e_ativar_usuario(telegram_id, email, plano_simulado, "approved")
     except Exception as e:
         await update.message.reply_text(f"❌ Erro ao simular ativação da assinatura para admin: {e}")
-        return ConversationHandler.END
+        return ConversationHandler.END # Encerra o funil em caso de erro para o admin
 
     await avancar_para_nova_etapa(
         update, context,
-        f"✅ Pagamento simulado com sucesso para admin!\n\nPlano assinado: *{plano_real}*.\nSeu acesso foi liberado. Agora vamos configurar seu canal privado.",
+        f"✅ Pagamento simulado com sucesso para admin!\n\nPlano assinado: *{plano_simulado}*.\nSeu acesso foi liberado. Agora vamos configurar seu canal privado.",
         [[InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]]
     )
     return ConversationHandler.END
@@ -241,6 +253,7 @@ async def pular_pagamento_admin(update: Update, context: ContextTypes.DEFAULT_TY
 async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from core.gateway.kirvano import verificar_status_compra_para_ativacao # Função correta
 
+    context.user_data.setdefault("mensagens_para_apagar", []).append(update.message.message_id)
     email = update.message.text.strip()
     vincular_email_usuario(update.effective_user.id, email) # Mantido, pois associa o email ao usuário no DB
 
@@ -297,7 +310,7 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Lógica centralizada de tratamento de status
     if status_compra == "approved":
         # Se o método de pagamento é FREE, verifica se o usuário é admin
-        if metodo_pagamento and metodo_pagamento.upper() == "FREE":
+        if metodo_pagamento and metodo_pagamento.upper() == "FREE": # Verifica se é um plano "FREE"
             if not is_usuario_admin(telegram_id):
                 await update.message.reply_text(
                     "❌ Produtos gratuitos só podem ser usados por administradores.",
@@ -306,9 +319,10 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ])
                 )
                 return PEDIR_EMAIL
-            print(f"[DEBUG] Admin {telegram_id} ativando acesso gratuito com e-mail {email}.")
+            print(f"[DEBUG] Admin {telegram_id} ativando acesso gratuito com e-mail {email}.") # Log para admin
         
-        # Verifica se o plano adquirido é diferente do selecionado (apenas para compras pagas)
+        # Remove a verificação estrita: se o plano real for diferente do esperado,
+        # o usuário ainda é ativado com o plano real.
         if plano_real != plano_esperado and (not metodo_pagamento or metodo_pagamento.upper() != "FREE"):
             await update.message.reply_text(
                 "❌ O plano selecionado não corresponde ao plano que você comprou.\n"
@@ -320,10 +334,19 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ])
             )
             return PEDIR_EMAIL
+        
+        # Mensagem informativa se o plano pago for diferente do selecionado
+        if plano_real != plano_esperado:
+            await update.message.reply_text(
+                f"⚠️ Você selecionou o plano *{plano_esperado}*, mas seu pagamento foi para o plano *{plano_real}*.\n"
+                f"Sua assinatura foi ativada para o plano *{plano_real}*.",
+                parse_mode="Markdown"
+            )
+            # Não retorna, continua para ativar o usuário com o plano_real
 
         # Ativa o usuário
         print(f"[DEBUG] Pagamento aprovado para {email}, ativando usuário {telegram_id}...")
-        try:
+        try: # Sempre ativa com o plano_real
             vincular_compra_e_ativar_usuario(telegram_id, email, plano_real, "approved")
         except Exception as e:
             await update.message.reply_text(
@@ -418,11 +441,12 @@ pagamento_conversation_handler = ConversationHandler(
     states={
         PEDIR_EMAIL: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, receber_email),
+            CallbackQueryHandler(responder_menu_6, pattern="^menu_6$"), # Adicionado para o botão "Corrigir e-mail"
             CommandHandler("pular", pular_pagamento_admin), # Adiciona o comando /pular para admins
             CallbackQueryHandler(pular_configuracao_callback, pattern="^pular_configuracao$")
         ],
     },
-    fallbacks=[],
+    fallbacks=[CommandHandler("start", menu_inicial.responder_inicio)], # Usa o objeto importado
     per_message=False
 )
 
@@ -442,7 +466,7 @@ async def roteador_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await gerar_pagamento_cartao(update, context, plano)
 
     elif data == "abrir_configurar_canal":
-        from chat_privado.menus.menu_configurar_canal import rotear_configuracao_canal # Importação local para quebrar o ciclo
+        from chat_privado.menus.menu_configurar_canal import menu_configurar_canal # Importação local para quebrar o ciclo
         print("[DEBUG] Callback abrir_configurar_canal acionado. Roteando...")
         await update.callback_query.answer()
-        await rotear_configuracao_canal(update, context)
+        await menu_configurar_canal(update, context)

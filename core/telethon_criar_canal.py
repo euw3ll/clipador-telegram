@@ -1,16 +1,23 @@
+import asyncio
+import logging
 from telethon import TelegramClient
-from telethon.tl.functions.channels import CreateChannelRequest, EditPhotoRequest, InviteToChannelRequest
-from telethon.tl.functions.messages import ExportChatInviteRequest, EditChatDefaultBannedRightsRequest
-from telethon.tl.types import InputChatUploadedPhoto, ChatBannedRights
+from telethon.tl.functions.channels import CreateChannelRequest, EditPhotoRequest, InviteToChannelRequest, EditAdminRequest, DeleteChannelRequest # Import DeleteChannelRequest
+from telethon.tl.functions.messages import ExportChatInviteRequest # Import ChatAdminRights
+from telethon.tl.types import InputChatUploadedPhoto, ChatBannedRights, User, ChatAdminRights # Import User here
+from telethon.errors import ChannelPrivateError, FloodWaitError, UserBotError, UserNotMutualContactError, UserBlockedError, UserPrivacyRestrictedError, PeerFloodError # Import specific errors
 
 # Adiciona a capacidade de carregar o arquivo .env ao executar este script diretamente
 from dotenv import load_dotenv
 load_dotenv()
 import os
 
+logger = logging.getLogger(__name__)
+
+
 # --- Credenciais da API do Telegram (my.telegram.org) ---
 API_ID = os.getenv("TELETHON_API_ID")
 API_HASH = os.getenv("TELETHON_API_HASH")
+TELEGRAM_BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME") # Novo: Username do bot Telegram
 if not API_ID or not API_HASH:
     raise ValueError("As variáveis de ambiente TELETHON_API_ID e TELETHON_API_HASH devem ser configuradas.")
 
@@ -33,39 +40,49 @@ async def criar_canal_telegram(nome_usuario: str, telegram_id: int, nome_exibica
         # Garante que o cliente está conectado. Se o arquivo .session existir, ele será usado.
         # Se não, um login interativo será iniciado. É recomendado gerar o .session localmente uma vez.
         me = await client.get_me()
-        print(f"Telethon conectado como: {me.username}")
+        logger.info(f"Telethon conectado como: {me.username}")
 
         # Cria o canal
+        logger.info(f"Telethon: Criando canal para {nome_usuario}...")
         canal = await client(CreateChannelRequest(
-            title=nome_exibicao or f"Clipador 🎥 @{nome_usuario}",
+            title=f"Clipador 🎥 @{nome_usuario}", # Sempre usar este formato
             about="Canal gerado automaticamente pelo Clipador.",
             megagroup=False # False para criar um canal de transmissão, não um supergrupo
         ))
         canal_entidade = canal.chats[0]
+        logger.info(f"Telethon: Canal '{canal_entidade.title}' (ID: {canal_entidade.id}) criado.")
 
-        # 1. Define as permissões padrão do canal (read-only para membros)
-        # Isso garante que apenas admins (o bot) possam postar.
-        permissoes_padrao = ChatBannedRights(
-            until_date=None,
-            send_messages=True,
-            send_media=True,
-            send_stickers=True,
-            send_gifs=True,
-            send_games=True,
-            send_inline=True,
-            embed_links=True,
-            send_polls=True,
-            change_info=True,
-            invite_users=True,
-            pin_messages=True
-        )
-        await client(EditChatDefaultBannedRightsRequest(peer=canal_entidade, banned_rights=permissoes_padrao))
+        # Adiciona uma pequena pausa para garantir que o canal seja totalmente inicializado
+        await asyncio.sleep(0.5)
+
+        # 1. Adiciona o bot do Telegram como administrador
+        if TELEGRAM_BOT_USERNAME:
+            try:
+                bot_entity = await client.get_entity(TELEGRAM_BOT_USERNAME)
+                if isinstance(bot_entity, User) and bot_entity.bot:
+                    # Direitos mínimos para o bot poder postar e gerenciar o canal
+                    bot_admin_rights = ChatAdminRights(post_messages=True, edit_messages=True, delete_messages=True, change_info=True, invite_users=True, pin_messages=True)
+                    
+                    # Tenta promover o bot a administrador diretamente.
+                    # Isso deve adicionar o bot ao canal se ele ainda não for membro.
+                    logger.info(f"Telethon: Promovendo bot @{TELEGRAM_BOT_USERNAME} a administrador do canal {canal_entidade.id}...")
+                    await client(EditAdminRequest(channel=canal_entidade, user_id=bot_entity, admin_rights=bot_admin_rights, rank="ClipadorBot"))
+                    logger.info(f"✅ Bot @{TELEGRAM_BOT_USERNAME} promovido a administrador do canal.")
+                else:
+                    logger.warning(f"⚠️ Aviso: Entidade '{TELEGRAM_BOT_USERNAME}' não é um bot válido. Não foi adicionado como admin.")
+            except Exception as e:
+                logger.error(f"❌ Erro ao adicionar o bot como administrador: {e}", exc_info=True)
+                raise # Re-lança a exceção para que o fluxo principal saiba que falhou.
+        else:
+            logger.warning("⚠️ Aviso: Variável de ambiente TELEGRAM_BOT_USERNAME não configurada. O bot não será adicionado como administrador do canal.")
 
         # 2. Adiciona o usuário (cliente) ao canal como um membro normal
+        logger.info(f"Telethon: Adicionando usuário {telegram_id} ao canal {canal_entidade.id}...")
         await client(InviteToChannelRequest(
             channel=canal_entidade,
             users=[telegram_id]
         ))
+        logger.info(f"✅ Usuário {telegram_id} adicionado ao canal.")
 
         # 3. Define a imagem do canal (se existir) de forma segura
         try:
@@ -76,15 +93,40 @@ async def criar_canal_telegram(nome_usuario: str, telegram_id: int, nome_exibica
                     channel=canal_entidade,
                     photo=InputChatUploadedPhoto(file)
                 ))
+                logger.info(f"✅ Imagem de perfil definida para o canal {canal_entidade.id}.")
+            else:
+                logger.warning(f"⚠️ Aviso: Imagem padrão não encontrada em {caminho_final_imagem}. Canal criado sem imagem de perfil.")
         except Exception as e:
-            print(f"⚠️ Aviso: Não foi possível definir a foto do canal. Verifique o arquivo '{caminho_imagem or IMAGEM_PADRAO_PATH}'. Erro: {e}")
+            logger.error(f"⚠️ Aviso: Não foi possível definir a foto do canal. Erro: {e}", exc_info=True)
 
         # 4. Gera o link de convite
+        logger.info(f"Telethon: Gerando link de convite para o canal {canal_entidade.id}...")
         link_convite = await client(ExportChatInviteRequest(peer=canal_entidade))
+        logger.info(f"✅ Link de convite gerado: {link_convite.link}")
 
-        print(f"✅ Canal criado: {canal_entidade.title}")
-        print(f"🆔 ID do canal: {canal_entidade.id}")
-        return canal_entidade.id, link_convite.link
+        # O ID do canal para a API de Bot deve ser o ID base (positivo) prefixado com -100.
+        id_canal_bot_api = int(f"-100{canal_entidade.id}")
+        logger.info(f"✅ Canal criado: {canal_entidade.title} | ID Base: {canal_entidade.id} | ID para Bot API: {id_canal_bot_api}")
+        return id_canal_bot_api, link_convite.link
+
+async def deletar_canal_telegram(id_canal: int):
+    """Deleta um canal do Telegram usando o Telethon."""
+    async with TelegramClient(SESSION_NAME, API_ID, API_HASH) as client:
+        try:
+            logger.info(f"Tentando deletar o canal com ID: {id_canal}")
+            await client(DeleteChannelRequest(channel=id_canal))
+            logger.info(f"Canal {id_canal} deletado com sucesso.")
+            return True
+        except ChannelPrivateError:
+            logger.warning(f"Não foi possível deletar o canal {id_canal}: o bot não é admin ou o canal é privado.")
+            return False
+        except FloodWaitError as e:
+            logger.error(f"Flood wait error ao tentar deletar canal {id_canal}. Aguardando {e.seconds} segundos.")
+            await asyncio.sleep(e.seconds)
+            return await deletar_canal_telegram(id_canal) # Tenta novamente
+        except Exception as e:
+            logger.error(f"Erro inesperado ao deletar o canal {id_canal}: {e}", exc_info=True)
+            return False
 
 if __name__ == "__main__":
     import asyncio

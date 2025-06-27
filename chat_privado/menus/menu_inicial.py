@@ -1,8 +1,9 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.ext import CommandHandler
-from chat_privado.usuarios import get_nivel_usuario
-from core.database import buscar_configuracao_canal, is_configuracao_completa # Nova importação
+from chat_privado.usuarios import get_nivel_usuario # Mantido para determinar o nível geral
+from core.database import buscar_configuracao_canal, is_configuracao_completa, obter_plano_usuario
+from configuracoes import SUPPORT_USERNAME # Importar o username de suporte
 
 async def responder_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
@@ -11,6 +12,9 @@ async def responder_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto = ""
     botoes = []
+
+    # Botão de suporte comum a todos
+    botao_suporte = [InlineKeyboardButton("💬 Suporte", url=f"https://t.me/{SUPPORT_USERNAME}")]
 
     # Configurações padrão para novos usuários e expirados
     texto_padrao_novo_usuario = (
@@ -27,6 +31,7 @@ async def responder_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📚 Como funciona", callback_data="menu_1")],
         [InlineKeyboardButton("💸 Ver planos", callback_data="menu_2")],
     ]
+    botoes_padrao.append(botao_suporte)
 
     # Mapeamento de nível para manipulador
     handlers = {
@@ -40,22 +45,25 @@ async def responder_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif nivel == 2:
         config_completa = is_configuracao_completa(telegram_id)
         config = buscar_configuracao_canal(telegram_id)
+        plano_assinado = obter_plano_usuario(telegram_id) # Obter o plano assinado
         link_do_canal = config.get("link_canal_telegram") if config else "#"
 
         texto = f"😎 E aí {nome}, o que vamos fazer hoje meu assinante favorito?\n\nSeu Clipador tá no pique pra caçar os melhores momentos das lives 🎯🔥"
         if config_completa:
             # Usuário com configuração completa
             botoes = [
-                [InlineKeyboardButton("⚙️ Configurar canal", callback_data="abrir_configurar_canal")],
-                [InlineKeyboardButton("📋 Ver plano atual", callback_data="menu_8")],
+                [InlineKeyboardButton("⚙️ Gerenciar Canal", callback_data="abrir_menu_gerenciar_canal")],
+                [InlineKeyboardButton("📋 Ver plano atual", callback_data="ver_plano_atual")],
                 [InlineKeyboardButton("📣 Abrir meu canal", url=link_do_canal)],
             ]
+            botoes.append(botao_suporte)
         else:
             # Usuário com configuração pendente
             botoes = [
                 [InlineKeyboardButton("🚨 Finalizar Configuração do Canal", callback_data="abrir_configurar_canal")],
-                [InlineKeyboardButton("📋 Ver plano atual", callback_data="menu_8")],
+                [InlineKeyboardButton("📋 Ver plano atual", callback_data="ver_plano_atual")],
             ]
+            botoes.append(botao_suporte)
     else:
         # Fallback para qualquer outro nível ou caso não previsto
         texto, botoes = handlers[1]

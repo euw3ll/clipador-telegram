@@ -1,5 +1,9 @@
 import sqlite3
 import os
+import logging
+
+from core.telethon_criar_canal import deletar_canal_telegram
+logger = logging.getLogger(__name__)
 
 
 CAMINHO_BANCO = os.path.join("banco", "clipador.db")
@@ -17,6 +21,7 @@ def criar_tabelas():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id INTEGER UNIQUE NOT NULL,
             nome TEXT,
+            email TEXT UNIQUE,
             nivel INTEGER DEFAULT 1,
             status_pagamento TEXT DEFAULT 'pendente',
             plano_assinado TEXT DEFAULT NULL,
@@ -37,7 +42,19 @@ def criar_tabelas():
             streamers_monitorados TEXT,
             modo_monitoramento TEXT,
             slots_ativos INTEGER DEFAULT 1,
-            data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Data de criação do registro
+            streamers_ultima_modificacao TIMESTAMP
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historico_envios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER NOT NULL,
+            streamer_id TEXT NOT NULL,
+            grupo_inicio TIMESTAMP NOT NULL,
+            grupo_fim TIMESTAMP NOT NULL,
+            enviado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -56,15 +73,15 @@ def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_cli
     if existe:
         # Atualiza a configuração existente
         cursor.execute("""
-            UPDATE configuracoes_canal SET
-            twitch_client_id = ?, twitch_client_secret = ?, streamers_monitorados = ?, modo_monitoramento = ?
+            UPDATE configuracoes_canal -- Atualiza todos os campos, incluindo o timestamp da última modificação de streamers
+            SET twitch_client_id = ?, twitch_client_secret = ?, streamers_monitorados = ?, modo_monitoramento = ?, streamers_ultima_modificacao = CURRENT_TIMESTAMP
             WHERE telegram_id = ?
         """, (twitch_client_id, twitch_client_secret, streamers_str, modo, telegram_id))
     else:
         # Insere uma nova configuração
         cursor.execute("""
-            INSERT INTO configuracoes_canal (telegram_id, twitch_client_id, twitch_client_secret, streamers_monitorados, modo_monitoramento)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO configuracoes_canal (telegram_id, twitch_client_id, twitch_client_secret, streamers_monitorados, modo_monitoramento, streamers_ultima_modificacao) -- Insere o timestamp na criação
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         """, (telegram_id, twitch_client_id, twitch_client_secret, streamers_str, modo))
     conn.commit()
     conn.close()
@@ -449,17 +466,20 @@ def buscar_configuracao_canal(telegram_id):
         return dict(zip(colunas, resultado))
     return None
 
+def buscar_link_canal(telegram_id):
+    """Busca o link do canal do Telegram de um usuário."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT link_canal_telegram FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+    return resultado[0] if resultado else None
+
+
 def salvar_link_canal(telegram_id, id_canal, link_canal):
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute("UPDATE configuracoes_canal SET id_canal_telegram = ?, link_canal_telegram = ? WHERE telegram_id = ?", (id_canal, link_canal, telegram_id))
-    conn.commit()
-    conn.close()
-
-def marcar_configuracao_completa(telegram_id):
-    conn = conectar()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET configuracao_finalizada = 1 WHERE telegram_id = ?", (telegram_id,))
     conn.commit()
     conn.close()
 
@@ -497,33 +517,60 @@ def assinatura_em_configuracao(telegram_id):
     return campos_pendentes
 
 
-# Funções de progresso do funil usando a tabela configuracoes_canal
-
 def salvar_progresso_configuracao(telegram_id, etapa, dados_parciais=None):
     conn = conectar()
     cursor = conn.cursor()
 
-    # Atualiza ou cria linha com progresso parcial
-    if buscar_configuracao_canal(telegram_id):
-        cursor.execute(f"""
-            UPDATE configuracoes_canal
-            SET modo_monitoramento = COALESCE(modo_monitoramento, ?),
-                streamers_monitorados = COALESCE(streamers_monitorados, ?)
-            WHERE telegram_id = ?
-        """, (
-            dados_parciais.get("modo_monitoramento") if dados_parciais else None,
-            dados_parciais.get("streamers_monitorados") if dados_parciais else None,
-            telegram_id
-        ))
+    # Busca a configuração existente para o usuário
+    existing_config = buscar_configuracao_canal(telegram_id)
+
+    update_fields = []
+    update_values = []
+
+    if dados_parciais:
+        if "twitch_client_id" in dados_parciais:
+            update_fields.append("twitch_client_id = ?")
+            update_values.append(dados_parciais["twitch_client_id"])
+        if "twitch_client_secret" in dados_parciais:
+            update_fields.append("twitch_client_secret = ?")
+            update_values.append(dados_parciais["twitch_client_secret"])
+        if "streamers" in dados_parciais:
+            streamers_str = ",".join(dados_parciais["streamers"])
+            update_fields.append("streamers_monitorados = ?")
+            update_values.append(streamers_str)
+            # Atualiza o timestamp de modificação de streamers se a lista de streamers mudou
+            # ou se está sendo definida pela primeira vez
+            if etapa == "streamers" and (not existing_config or existing_config.get("streamers_monitorados") != streamers_str):
+                update_fields.append("streamers_ultima_modificacao = CURRENT_TIMESTAMP")
+        if "modo" in dados_parciais:
+            update_fields.append("modo_monitoramento = ?")
+            update_values.append(dados_parciais["modo"])
+
+    if existing_config:
+        if update_fields:
+            query = f"UPDATE configuracoes_canal SET {', '.join(update_fields)} WHERE telegram_id = ?"
+            cursor.execute(query, tuple(update_values + [telegram_id]))
     else:
-        cursor.execute(f"""
-            INSERT INTO configuracoes_canal (telegram_id, modo_monitoramento, streamers_monitorados)
-            VALUES (?, ?, ?)
-        """, (
-            telegram_id,
-            dados_parciais.get("modo_monitoramento") if dados_parciais else None,
-            dados_parciais.get("streamers_monitorados") if dados_parciais else None
-        ))
+        # Se não existe, cria um novo registro
+        insert_fields = ["telegram_id"]
+        insert_values = [telegram_id]
+        if "twitch_client_id" in dados_parciais:
+            insert_fields.append("twitch_client_id")
+            insert_values.append(dados_parciais["twitch_client_id"])
+        if "twitch_client_secret" in dados_parciais:
+            insert_fields.append("twitch_client_secret")
+            insert_values.append(dados_parciais["twitch_client_secret"])
+        if "streamers" in dados_parciais:
+            insert_fields.append("streamers_monitorados")
+            insert_values.append(",".join(dados_parciais["streamers"]))
+            insert_fields.append("streamers_ultima_modificacao") # Set timestamp on initial save
+            insert_values.append("CURRENT_TIMESTAMP")
+        if "modo" in dados_parciais:
+            insert_fields.append("modo_monitoramento")
+            insert_values.append(dados_parciais["modo"])
+        
+        query = f"INSERT INTO configuracoes_canal ({', '.join(insert_fields)}) VALUES ({', '.join(['?' for _ in insert_values])})"
+        cursor.execute(query, tuple(insert_values))
 
     conn.commit()
     conn.close()
@@ -543,26 +590,48 @@ def buscar_progresso_configuracao(telegram_id):
 def limpar_progresso_configuracao(telegram_id):
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
-    conn.commit()
-    conn.close()
-
-def resetar_estado_usuario_para_teste(telegram_id: int):
-    """
-    Reseta o estado de um usuário para que ele apareça como um novo usuário
-    para fins de teste.
-    """
-    conn = conectar()
-    cursor = conn.cursor()
+    # Altera para atualizar os campos de progresso para NULL, mantendo o registro do canal
     cursor.execute("""
-        UPDATE usuarios SET
-            nivel = 1, status_pagamento = 'pendente', plano_assinado = NULL,
-            configuracao_finalizada = 0, data_expiracao = NULL, status_canal = NULL
+        UPDATE configuracoes_canal
+        SET twitch_client_id = NULL, twitch_client_secret = NULL, streamers_monitorados = NULL, modo_monitoramento = NULL
         WHERE telegram_id = ?
     """, (telegram_id,))
     conn.commit()
     conn.close()
-    deletar_configuracao_canal(telegram_id) # Garante que a configuração do canal também seja removida
+async def resetar_estado_usuario_para_teste(telegram_id: int):
+    """
+    APAGA COMPLETAMENTE um usuário e todos os seus dados associados do banco de dados,
+    e também apaga o canal do Telegram associado, para fins de teste.
+    """
+    # 1. Buscar e deletar o canal do Telegram
+    config = buscar_configuracao_canal(telegram_id)
+    if config and config.get('id_canal_telegram'):
+        try:
+            id_canal = int(config['id_canal_telegram'])
+            await deletar_canal_telegram(id_canal)
+            logger.info(f"Canal do Telegram {id_canal} para o usuário {telegram_id} deletado com sucesso via Telethon.")
+        except Exception as e:
+            logger.error(f"Erro ao tentar deletar o canal do Telegram {config.get('id_canal_telegram')} para o usuário {telegram_id}: {e}", exc_info=True)
+
+    # 2. Deletar todos os registros do banco de dados associados ao telegram_id em uma única transação
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        # Deletar da tabela de configurações
+        cursor.execute("DELETE FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
+        # Deletar do histórico de envios
+        cursor.execute("DELETE FROM historico_envios WHERE telegram_id = ?", (telegram_id,))
+        # Deletar da tabela de compras
+        cursor.execute("DELETE FROM compras WHERE telegram_id = ?", (telegram_id,))
+        # Deletar da tabela de usuários
+        cursor.execute("DELETE FROM usuarios WHERE telegram_id = ?", (telegram_id,))
+        conn.commit()
+        logger.info(f"Todos os dados do usuário {telegram_id} foram removidos do banco de dados.")
+    except Exception as e:
+        logger.error(f"Erro ao deletar dados do usuário {telegram_id} do banco de dados: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 def buscar_usuarios_ativos_configurados():
     """
@@ -584,11 +653,60 @@ def buscar_usuarios_ativos_configurados():
     # Converte os resultados (sqlite3.Row) para dicionários
     return [dict(row) for row in resultados]
 
+def registrar_grupo_enviado(telegram_id: int, streamer_id: str, grupo_inicio: 'datetime', grupo_fim: 'datetime'):
+    """Registra que um grupo de clipes foi enviado para um usuário."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO historico_envios (telegram_id, streamer_id, grupo_inicio, grupo_fim)
+        VALUES (?, ?, ?, ?)
+    """, (telegram_id, streamer_id, grupo_inicio, grupo_fim))
+    conn.commit()
+    conn.close()
+
+def verificar_grupo_ja_enviado(telegram_id: int, streamer_id: str, grupo_inicio: 'datetime', grupo_fim: 'datetime') -> bool:
+    """Verifica se um grupo de clipes já foi enviado para um usuário."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 1 FROM historico_envios
+        WHERE telegram_id = ? AND streamer_id = ? AND grupo_inicio = ? AND grupo_fim = ?
+    """, (telegram_id, streamer_id, grupo_inicio, grupo_fim))
+    resultado = cursor.fetchone()
+    conn.close()
+    return resultado is not None
+
 def deletar_configuracao_canal(telegram_id: int):
     """Remove a linha de configuração de um usuário da tabela configuracoes_canal."""
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+
+def atualizar_modo_monitoramento(telegram_id: int, novo_modo: str):
+    """Atualiza apenas o modo de monitoramento de um canal."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE configuracoes_canal SET modo_monitoramento = ? WHERE telegram_id = ?", (novo_modo, telegram_id))
+    conn.commit()
+    conn.close()
+
+def atualizar_streamers_monitorados(telegram_id: int, nova_lista_streamers: list[str]):
+    """
+    Atualiza a lista de streamers monitorados.
+    O timestamp 'streamers_ultima_modificacao' NÃO é atualizado aqui,
+    pois ele marca o início do período de 1 hora para alterações,
+    e não deve ser resetado a cada modificação.
+    """
+    conn = conectar()
+    cursor = conn.cursor()
+    streamers_str = ",".join(nova_lista_streamers)
+    cursor.execute("""
+        UPDATE configuracoes_canal -- Remove a atualização do timestamp aqui
+        SET streamers_monitorados = ?
+        WHERE telegram_id = ?
+    """, (streamers_str, telegram_id))
     conn.commit()
     conn.close()
 

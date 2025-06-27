@@ -3,11 +3,10 @@ import os
 import requests
 
 from core.ambiente import TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
-
 class TwitchAPI:
-    def __init__(self):
-        self.client_id = TWITCH_CLIENT_ID
-        self.client_secret = TWITCH_CLIENT_SECRET
+    def __init__(self, client_id: str, client_secret: str):
+        self.client_id = client_id
+        self.client_secret = client_secret
         self.token = self.get_access_token()
 
     def get_access_token(self):

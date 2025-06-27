@@ -1,61 +1,68 @@
 import os
-from PIL import Image, ImageDraw, ImageOps
-from telegram.ext import ContextTypes
+from PIL import Image, ImageDraw, ImageFont
+import requests
+from io import BytesIO
+import logging
 
-# Certifique-se de que a pasta temp exista
-os.makedirs("temp", exist_ok=True)
+logger = logging.getLogger(__name__)
 
-BASE_LOGO_PATH = os.path.join("images", "logo_canal.jpg")
-
-async def gerar_imagem_canal_personalizada(telegram_id: int, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def gerar_imagem_canal_personalizada(telegram_id: int, context) -> str:
     """
-    Gera uma imagem de perfil para o canal, combinando o logo base com a foto do usuário.
-    Retorna o caminho para a imagem gerada ou o caminho do logo base se algo falhar.
+    Gera uma imagem de perfil personalizada para o canal do Telegram.
+    Coloca a foto de perfil do usuário no canto inferior direito de uma imagem base.
     """
+    base_image_path = os.path.join("images", "logo_canal.jpg")
+    output_dir = "memoria/canais_imagens"
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"canal_{telegram_id}.jpg")
+
     try:
-        # 1. Verificar se o logo base existe
-        if not os.path.exists(BASE_LOGO_PATH):
-            print(f"⚠️ Aviso: Imagem base não encontrada em {BASE_LOGO_PATH}. Usando fallback.")
-            return BASE_LOGO_PATH
+        # Carregar imagem base
+        if not os.path.exists(base_image_path):
+            logger.warning(f"Imagem base não encontrada em {base_image_path}. Criando uma imagem padrão.")
+            base_img = Image.new('RGB', (500, 500), color = (73, 109, 137))
+            d = ImageDraw.Draw(base_img)
+            fnt = ImageFont.load_default()
+            d.text((10,10), "Clipador", font=fnt, fill=(255,255,255))
+        else:
+            base_img = Image.open(base_image_path).convert("RGBA")
 
-        # 2. Obter a foto de perfil do usuário
-        fotos_perfil = await context.bot.get_user_profile_photos(user_id=telegram_id, limit=1)
-        if not fotos_perfil or not fotos_perfil.photos:
-            print(f"ℹ️ Info: Usuário {telegram_id} não tem foto de perfil. Usando logo padrão.")
-            return BASE_LOGO_PATH
+        # Obter foto de perfil do usuário
+        user_profile_photos = await context.bot.get_user_profile_photos(user_id=telegram_id, limit=1)
+        if user_profile_photos.photos and user_profile_photos.photos[0]:
+            photo_file_id = user_profile_photos.photos[0][-1].file_id # Pega a maior versão da foto
+            photo_file = await context.bot.get_file(photo_file_id)
+            response = requests.get(photo_file.file_path)
+            user_img = Image.open(BytesIO(response.content)).convert("RGBA")
 
-        # 3. Baixar a foto de maior resolução
-        foto_file = await fotos_perfil.photos[0][-1].get_file()
-        caminho_foto_temp = os.path.join("temp", f"{telegram_id}_profile.jpg")
-        await foto_file.download_to_drive(caminho_foto_temp)
+            # Redimensionar e colar a imagem do usuário (MAIOR)
+            base_width, base_height = base_img.size
+            target_size = int(min(base_width, base_height) * 0.6) # Aumentado de 0.4 para 0.6 para preencher mais
+            user_img = user_img.resize((target_size, target_size), Image.LANCZOS)
 
-        # 4. Manipulação de imagem com Pillow
-        logo_base = Image.open(BASE_LOGO_PATH).convert("RGBA")
-        foto_usuario = Image.open(caminho_foto_temp).convert("RGBA")
+            # Criar uma máscara circular
+            mask = Image.new('L', (target_size, target_size), 0)
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0, target_size, target_size), fill=255)
+            
+            # Posição no canto inferior direito, com uma pequena margem proporcional
+            margin = int(target_size * 0.02) # 2% da nova dimensão como margem
+            position_x = base_width - target_size - margin
+            position_y = base_height - target_size - margin
 
-        # Define o tamanho do círculo da foto do usuário (ex: 180x180 pixels)
-        tamanho_circulo = (180, 180)
-        foto_usuario = foto_usuario.resize(tamanho_circulo, Image.Resampling.LANCZOS)
+            base_img.paste(user_img, (position_x, position_y), mask)
+        else:
+            logger.info(f"Usuário {telegram_id} não possui foto de perfil. Usando apenas a imagem base.")
 
-        # Cria a máscara circular
-        mascara = Image.new('L', tamanho_circulo, 0)
-        desenho = ImageDraw.Draw(mascara)
-        desenho.ellipse((0, 0) + tamanho_circulo, fill=255)
-
-        # Aplica a máscara e cola no logo base (canto inferior direito com margem de 20px)
-        posicao = (logo_base.width - tamanho_circulo[0] - 20, logo_base.height - tamanho_circulo[1] - 20)
-        logo_base.paste(foto_usuario, posicao, mascara)
-
-        # 5. Salva a imagem final
-        caminho_final = os.path.join("temp", f"{telegram_id}_final_logo.png")
-        logo_base.save(caminho_final, "PNG")
-
-        # 6. Limpa o arquivo temporário da foto do usuário
-        os.remove(caminho_foto_temp)
-
-        print(f"✅ Imagem de perfil personalizada criada para {telegram_id} em {caminho_final}")
-        return caminho_final
+        # Salvar imagem final
+        # Converte para RGB antes de salvar como JPEG para evitar problemas com o canal alfa
+        if base_img.mode == 'RGBA':
+            base_img = base_img.convert('RGB')
+        
+        base_img.save(output_path, "JPEG")
+        return output_path
 
     except Exception as e:
-        print(f"❌ Erro ao gerar imagem personalizada para {telegram_id}: {e}. Usando logo padrão.")
-        return BASE_LOGO_PATH
+        logger.error(f"Erro ao gerar imagem de canal personalizada para {telegram_id}: {e}")
+        # Retorna a imagem padrão se houver erro
+        return base_image_path

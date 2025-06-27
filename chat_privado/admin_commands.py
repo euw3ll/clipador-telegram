@@ -6,7 +6,8 @@ from core.database import (
     buscar_usuario_por_id,
     is_configuracao_completa,
     salvar_link_canal,
-    buscar_configuracao_canal
+    buscar_configuracao_canal,
+    deletar_configuracao_canal
 )
 from core.telethon_criar_canal import criar_canal_telegram
 from core.telethon_gerenciar_canal import excluir_canal_telegram
@@ -50,10 +51,9 @@ async def reset_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     try:
-        resetar_estado_usuario_para_teste(target_id)
+        await resetar_estado_usuario_para_teste(target_id)
         await update.message.reply_text(
-            f"✅ Estado do usuário `{target_id}` resetado com sucesso.\n"
-            "A configuração do canal foi removida e ele pode iniciar o funil novamente.",
+            f"✅ Usuário `{target_id}` e todos os seus dados foram completamente removidos com sucesso.",
             parse_mode="Markdown"
         )
     except Exception as e:

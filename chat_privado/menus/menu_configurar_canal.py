@@ -13,45 +13,62 @@ from core.database import (
     salvar_progresso_configuracao,
     limpar_progresso_configuracao,
     conectar,
+    buscar_link_canal,
     marcar_configuracao_completa, # Importação necessária para a verificação
     salvar_configuracao_canal_completa, # Importação para salvar a configuração final
     is_configuracao_completa # Importação necessária para a verificação
+    , obter_plano_usuario # Importar para obter o plano do usuário
 )
 from chat_privado.usuarios import get_nivel_usuario
+import chat_privado.menus.menu_inicial as menu_inicial # Importa o módulo inteiro
 from core.telethon_criar_canal import criar_canal_telegram
+from canal_gratuito.core.twitch import TwitchAPI # Importa a TwitchAPI para validação
 from core.image_utils import gerar_imagem_canal_personalizada
 
 logger = logging.getLogger(__name__)
 
-async def limpar_e_enviar_nova_etapa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botoes: list, parse_mode="Markdown"):
+async def limpar_e_enviar_nova_etapa(update: Update, context: ContextTypes.DEFAULT_TYPE, texto: str, botoes: list, parse_mode="Markdown", usar_force_reply=False):
+    # Identify the message that triggered the current callback, if any
+    current_message_id = None
+    if hasattr(update, 'callback_query') and update.callback_query and update.callback_query.message:
+        current_message_id = update.callback_query.message.message_id
+
     # Apagar mensagens antigas armazenadas
     for msg_id in context.user_data.get("mensagens_para_apagar", []):
-        try:
-            await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
-        except:
-            pass
+        if msg_id != current_message_id: # Don't delete the current message if we intend to edit it
+            try:
+                await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
+            except Exception: # Catch specific exceptions if possible, e.g., MessageCantBeDeleted
+                pass
     context.user_data["mensagens_para_apagar"] = []
 
     # Tentar editar a mensagem se for callback, senão enviar nova
+    reply_markup = InlineKeyboardMarkup(botoes) if botoes else None
+    if usar_force_reply:
+        from telegram import ForceReply
+        reply_markup = ForceReply(selective=True)
+
     try:
-        if update.callback_query:
+        if hasattr(update, 'callback_query') and update.callback_query:
             await update.callback_query.answer()
             nova_msg = await update.callback_query.edit_message_text(
                 text=texto,
-                reply_markup=InlineKeyboardMarkup(botoes),
+                reply_markup=reply_markup,
                 parse_mode=parse_mode
             )
         else:
             nova_msg = await update.message.reply_text(
                 text=texto,
-                reply_markup=InlineKeyboardMarkup(botoes),
+                reply_markup=reply_markup,
                 parse_mode=parse_mode
             )
         context.user_data["mensagens_para_apagar"] = [nova_msg.message_id]
-    except:
-        nova_msg = await update.effective_message.reply_text(
+    except Exception: # Catch specific exceptions if possible, e.g., BadRequest
+        # Fallback para enviar uma nova mensagem se a edição falhar
+        target_message = update.effective_message
+        nova_msg = await target_message.reply_text(
             text=texto,
-            reply_markup=InlineKeyboardMarkup(botoes),
+            reply_markup=reply_markup,
             parse_mode=parse_mode
         )
         context.user_data["mensagens_para_apagar"] = [nova_msg.message_id]
@@ -134,6 +151,8 @@ async def verificar_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
 
 async def menu_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # This function is the entry point for the configuration funnel.
+    # Esta função foi refatorada para permitir a continuação da configuração.
     try:
         await update.callback_query.delete_message()
     except Exception:
@@ -143,63 +162,31 @@ async def menu_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     telegram_id = update.effective_user.id
 
-    # Se o usuário é assinante ativo e a configuração não está completa,
-    # limpa o progresso anterior para reiniciar do zero.
-    try:
-        if get_nivel_usuario(telegram_id) == 2 and not is_configuracao_completa(telegram_id):
-            logger.info(f"Reiniciando configuração para o usuário {telegram_id}.")
-            limpar_progresso_configuracao(telegram_id)
-            # Limpa também os dados temporários do user_data para garantir um recomeço limpo
-            context.user_data.pop("twitch_id", None)
-            context.user_data.pop("twitch_secret", None)
-            context.user_data.pop("streamers", None)
-            context.user_data.pop("modo_monitoramento", None)
-            context.user_data.pop("canal_config", None)
-    except Exception as e:
-        logger.error(f"Erro ao tentar reiniciar a configuração para {telegram_id}: {e}")
-
     for msg_id in context.user_data.get("mensagens_para_apagar", []):
         try:
             await context.bot.delete_message(chat_id=query.from_user.id, message_id=msg_id)
         except:
             pass
     context.user_data["mensagens_para_apagar"] = []
-    # Remover mensagens extras após ativação gratuita para admin
-    if context.user_data.get("produto_gratis_ativado_admin"):
-        for msg_id in context.user_data.get("mensagens_para_apagar", []):
-            try:
-                await context.bot.delete_message(chat_id=query.from_user.id, message_id=msg_id)
-            except:
-                pass
-        context.user_data["mensagens_para_apagar"] = []
 
-    configuracao = buscar_configuracao_canal(query.from_user.id)
-    # Checagem de etapas da configuração
-    if configuracao:
-        if not configuracao.get("twitch_client_id") or not configuracao.get("twitch_client_secret"):
-            return await iniciar_envio_twitch(update, context)
-        if not configuracao.get("streamers"):
-            return await receber_credenciais(update, context)
-        if not configuracao.get("modo"):
-            return await escolher_modo_monitoramento(update, context)
-    if configuracao and configuracao.get("twitch_client_id") and configuracao.get("streamers"):
-        if context.user_data.get("produto_gratis_ativado_admin"):
-            for msg_id in context.user_data.get("mensagens_para_apagar", []):
-                try:
-                    await context.bot.delete_message(chat_id=query.from_user.id, message_id=msg_id)
-                except:
-                    pass
-            context.user_data["mensagens_para_apagar"] = []
+    # 1. Verifica se a configuração já está totalmente completa
+    telegram_id = update.effective_user.id # Ensure telegram_id is defined here
+    if is_configuracao_completa(telegram_id):
+        link_canal = buscar_link_canal(telegram_id)
         texto = "⚙️ Seu canal já está configurado.\n\nO que deseja fazer?"
         botoes = [
-            [InlineKeyboardButton("👁 Ver canal", callback_data="ver_canal")],
-            [InlineKeyboardButton("🔧 Alterar configuração", callback_data="enviar_twitch")],
-            [InlineKeyboardButton("ℹ️ Ver plano", callback_data="ver_plano")],
+            [InlineKeyboardButton("👁 Abrir canal", url=link_canal if link_canal else "https://t.me/")],
+            [InlineKeyboardButton("🔧 Gerenciar canal", callback_data="abrir_menu_gerenciar_canal")],
+            [InlineKeyboardButton("ℹ️ Ver plano", callback_data="ver_plano_atual")], # This callback is in menu_gerenciamento.py
             [InlineKeyboardButton("🔙 Voltar", callback_data="menu_0")]
         ]
         await limpar_e_enviar_nova_etapa(update, context, texto, botoes, parse_mode=None)
         return
 
+    # 2. Se não estiver completa, SEMPRE mostra o tutorial inicial.
+    # A lógica de "retomar de onde parou" será tratada dentro das funções de cada etapa
+    # (iniciar_envio_twitch, iniciar_envio_streamers, escolher_modo_monitoramento)
+    # que serão chamadas via botões ou comandos.
     texto = (
         "👣 *Passo 1* — Crie um aplicativo na Twitch:\n"
         "https://dev.twitch.tv/console/apps\n\n"
@@ -209,6 +196,36 @@ async def menu_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TY
     botoes = [
         [InlineKeyboardButton("📨 Enviar dados da Twitch", callback_data="enviar_twitch")]
     ]
+
+    # Check if there's partial data to inform the user they are resuming
+    configuracao = buscar_configuracao_canal(telegram_id)
+    if configuracao:
+        # Carrega dados parciais para o contexto para continuidade
+        context.user_data["twitch_id"] = configuracao.get("twitch_client_id")
+        context.user_data["twitch_secret"] = configuracao.get("twitch_client_secret")
+        db_streamers_str = configuracao.get("streamers_monitorados")
+        context.user_data["streamers"] = [s.strip() for s in db_streamers_str.split(',') if s.strip()] if db_streamers_str else []
+        context.user_data["modo_monitoramento"] = configuracao.get("modo_monitoramento")
+
+        plano_assinado = obter_plano_usuario(telegram_id)
+        limite_streamers = 1
+        if plano_assinado == "Mensal Plus": limite_streamers = 3
+        elif plano_assinado == "Anual Pro": limite_streamers = 5
+        context.user_data["limite_streamers"] = limite_streamers
+
+        # If any part of the configuration is already saved, add a "resume" message
+        if configuracao.get("twitch_client_id") or configuracao.get("streamers_monitorados") or configuracao.get("modo_monitoramento"):
+            texto = "✅ Você está retomando a configuração do seu canal.\n\n" + texto
+            # Add a button to jump directly to the next incomplete step if they prefer
+            # This makes the "resume" more explicit and user-friendly.
+            if not configuracao.get("twitch_client_id") or not configuracao.get("twitch_client_secret"):
+                # If credentials are missing, the "Enviar dados da Twitch" button is already there.
+                # No need for a separate "Continuar Credenciais" button.
+                pass
+            elif not configuracao.get("streamers_monitorados"):
+                botoes.insert(0, [InlineKeyboardButton("➡️ Continuar Streamers", callback_data="iniciar_envio_streamers_callback")]) # New callback for this
+            elif not configuracao.get("modo_monitoramento"):
+                botoes.insert(0, [InlineKeyboardButton("➡️ Continuar Modo", callback_data="escolher_modo_monitoramento_callback")]) # New callback for this
 
     await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
 
@@ -239,33 +256,77 @@ async def iniciar_configuracao_pos_pagamento(update: Update, context: ContextTyp
     await menu_configurar_canal(update, context)
 
 async def iniciar_envio_twitch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
+    query = update.callback_query
+    await query.answer()
 
-    # Apagar mensagens antigas
-    for msg_id in context.user_data.get("mensagens_para_apagar", []):
-        try:
-            await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
-        except:
-            pass
-    context.user_data["mensagens_para_apagar"] = []
-
-    texto = (
-        "🧩 Agora me diga as credenciais do aplicativo que você criou na Twitch:\n\n"
-        "Envie nesse formato exato:\n\n"
-        "`ID: abc123`\n`SECRET: def456`"
+    # Não apaga a mensagem anterior (o tutorial), apenas responde a ela.
+    texto_instrucao = (
+        "Envie suas credenciais da Twitch no formato abaixo."
+        "\n`ID: abc123`\n`SECRET: def456`\n\n"
     )
     from telegram import ForceReply
-    msg = await context.bot.send_message(
-        chat_id=update.effective_user.id,
-        text=texto,
+    # Usa reply_text na mensagem original do tutorial para criar um "fio" de conversa
+    msg = await query.message.reply_text(
+        text=texto_instrucao,
         reply_markup=ForceReply(selective=True),
         parse_mode="Markdown"
     )
-    context.user_data["mensagens_para_apagar"] = [msg.message_id]
+    # Adiciona a nova mensagem à lista de exclusão para a próxima etapa,
+    # mas mantém a mensagem do tutorial.
+    context.user_data.setdefault("mensagens_para_apagar", []).append(msg.message_id)
     return ESPERANDO_CREDENCIAIS
+
+# New callback handlers to jump directly to a step from the main tutorial screen
+async def iniciar_envio_streamers_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    # This will call the existing function that sends the streamer prompt with ForceReply
+    return await iniciar_envio_streamers(update, context)
+
+async def escolher_modo_monitoramento_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    # This will call the existing function that sends the mode selection buttons
+    return await escolher_modo_monitoramento(update, context)
+
+async def iniciar_envio_streamers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Função para iniciar a etapa de envio de streamers.
+    Pode ser chamada para iniciar ou retomar esta etapa.
+    Usa ForceReply para indicar que o bot está aguardando uma resposta.
+    """
+    from telegram import ForceReply
+
+    limite_streamers = context.user_data.get("limite_streamers", 1)
+    streamers_atuais = context.user_data.get("streamers", [])
+
+    if streamers_atuais:
+        lista = "\n".join([f"{i+1}. {s}" for i, s in enumerate(streamers_atuais)])
+        texto_etapa = (
+            f"📺 *Streamers atuais:*\n{lista}\n\n"
+            f"Envie o nome de outro streamer que deseja monitorar (ex: @gaules).\n"
+            f"Você pode cadastrar até {limite_streamers} streamers.\n"
+            f"Se preferir, digite `/continuar` para avançar."
+        )
+    else:
+        texto_etapa = (
+            f"✅ Credenciais recebidas!\n\n"
+            f"Agora envie o nome do streamer que deseja monitorar (ex: @gaules). Você pode usar @ ou não, como preferir.\n\n"
+            f"📌 Você pode cadastrar até {limite_streamers} streamers.\n"
+            f"Se preferir, você poderá configurar os streamers depois. Digite `/continuar` para avançar."
+        )
+
+    msg = await update.effective_message.reply_text(
+        text=texto_etapa,
+        reply_markup=ForceReply(selective=True),
+        parse_mode="Markdown"
+    )
+    context.user_data.setdefault("mensagens_para_apagar", []).append(msg.message_id)
+    return ESPERANDO_STREAMERS
 
 async def receber_credenciais(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Apagar mensagens anteriores da etapa de credenciais
+    context.user_data.setdefault("mensagens_para_apagar", []).append(update.message.message_id)
     for msg_id in context.user_data.get("mensagens_para_apagar", []):
         try:
             await context.bot.delete_message(chat_id=update.effective_user.id, message_id=msg_id)
@@ -295,8 +356,20 @@ async def receber_credenciais(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     telegram_id = update.message.from_user.id
     nome = update.message.from_user.full_name
-    nivel = get_nivel_usuario(telegram_id, nome)
-    limite_streamers = 1 if nivel == 2 else 3 if nivel == 3 else 5
+    
+    # Obter o plano assinado do usuário do banco de dados
+    plano_assinado = obter_plano_usuario(telegram_id)
+    
+    # Definir limite de streamers com base no plano assinado
+    limite_streamers = 1 # Padrão para Mensal Solo
+    if plano_assinado == "Mensal Plus":
+        limite_streamers = 3
+    elif plano_assinado == "Anual Pro":
+        limite_streamers = 5
+    # Adicione mais condições se houver outros planos com limites diferentes
+    
+    logger.info(f"Usuário {telegram_id} com plano '{plano_assinado}'. Limite de streamers: {limite_streamers}")
+
     context.user_data.update({
         "limite_streamers": limite_streamers,
         "streamers": []
@@ -315,16 +388,32 @@ async def receber_credenciais(update: Update, context: ContextTypes.DEFAULT_TYPE
         "twitch_client_secret": twitch_secret
     })
 
-    texto_etapa = (
-        f"✅ Credenciais recebidas!\n\nAgora envie o nome do streamer que deseja monitorar (ex: gaules). *Não use @*.\n\n"
-        f"📌 Você pode cadastrar até {limite_streamers} streamers. Slots extras estarão disponíveis futuramente.\n"
-        f"Você pode digitar `/continuar` a qualquer momento para avançar."
-    )
-    await limpar_e_enviar_nova_etapa(update, context, texto_etapa, [])
-    return ESPERANDO_STREAMERS
+    # Avança para a próxima etapa, que agora usa ForceReply para guiar o usuário
+    return await iniciar_envio_streamers(update, context)
 
 async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    nome = update.message.text.strip()
+    # Envia uma ação de "digitando" para dar feedback imediato ao usuário
+    await update.message.chat.send_action(action="typing")
+    context.user_data.setdefault("mensagens_para_apagar", []).append(update.message.message_id)
+
+    nome_raw = update.message.text.strip()
+    nome = nome_raw.replace('@', '') # Remove @ se o usuário enviar
+
+    # --- Adicionar validação do streamer ---
+    twitch_id = context.user_data.get("twitch_id")
+    twitch_client_secret = context.user_data.get("twitch_secret")
+
+    try:
+        twitch = TwitchAPI(twitch_id, twitch_client_secret) # Agora passa as credenciais do usuário
+        streamer_info = twitch.get_user_info(nome)
+        if not streamer_info:
+            await update.message.reply_text(f"❌ Streamer '{nome_raw}' não encontrado na Twitch. Verifique o nome e tente novamente.")
+            return ESPERANDO_STREAMERS
+    except Exception as e:
+        logger.error(f"Erro ao validar streamer '{nome}' na Twitch: {e}")
+        await update.message.reply_text("❌ Ocorreu um erro ao verificar o streamer na Twitch. Verifique suas credenciais ou tente novamente mais tarde.")
+        return ESPERANDO_STREAMERS
+    # --- Fim da validação ---
     streamers = context.user_data.get("streamers", [])
     limite = context.user_data.get("limite_streamers")
 
@@ -373,7 +462,14 @@ async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Adicionado: {nome}\n\nStreamers atuais:\n{lista}\n\n"
             f"Você pode enviar mais {restante}, digite /continuar ou envie o número para remover."
         )
-        await limpar_e_enviar_nova_etapa(update, context, texto, [])
+        # Usa ForceReply para manter o fluxo de conversa e indicar que o bot espera mais nomes
+        from telegram import ForceReply
+        msg = await update.message.reply_text(
+            text=texto,
+            reply_markup=ForceReply(selective=True),
+            parse_mode="Markdown"
+        )
+        context.user_data.setdefault("mensagens_para_apagar", []).append(msg.message_id)
         return ESPERANDO_STREAMERS
     else:
         # Limpar mensagens antes de ir para a escolha de modo
@@ -401,7 +497,11 @@ async def escolher_modo_monitoramento(update: Update, context: ContextTypes.DEFA
         "📌 Você poderá alterar o modo depois."
     )
     botoes = [
-        [InlineKeyboardButton("✅ Selecionar modo", callback_data="escolher_modo")],
+        [InlineKeyboardButton("🤖 Automático", callback_data="modo_AUTOMATICO")],
+        [InlineKeyboardButton("🚀 Modo Louco", callback_data="modo_MODO_LOUCO")],
+        [InlineKeyboardButton("🎯 Modo Padrão", callback_data="modo_MODO_PADRAO")],
+        [InlineKeyboardButton("🔬 Modo Cirúrgico", callback_data="modo_MODO_CIRURGICO")],
+        [InlineKeyboardButton("🛠 Manual", callback_data="abrir_menu_manual")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_streamers")]
     ]
     await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
@@ -424,11 +524,11 @@ async def mostrar_botoes_modos(update: Update, context: ContextTypes.DEFAULT_TYP
 
     texto = (
         "🧠 *Modos de Monitoramento do Clipador:*\n\n"
-        "🤖 *Automático:* O Clipador escolhe o melhor modo.\n"
-        "🚀 *Modo Louco:* Muitos clipes rapidamente.\n"
+        "🤖 *Automático:* O Clipador escolhe a melhor forma de monitorar.\n"
+        "🚀 *Modo Louco:* Todos os clipes, sem falta.\n"
         "🎯 *Modo Padrão:* Equilíbrio entre qualidade e quantidade.\n"
-        "🔬 *Modo Cirúrgico:* Apenas clipes virais.\n"
-        "🛠 *Manual:* (em breve)\n\n"
+        "🔬 *Modo Cirúrgico:* Apenas clipes muito interessantes.\n"
+        "🛠 *Manual: Você define as regras de monitoramento.\n\n"
         "📌 Você poderá alterar o modo depois."
     )
     botoes = [
@@ -436,8 +536,83 @@ async def mostrar_botoes_modos(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("🚀 Modo Louco", callback_data="modo_MODO_LOUCO")],
         [InlineKeyboardButton("🎯 Modo Padrão", callback_data="modo_MODO_PADRAO")],
         [InlineKeyboardButton("🔬 Modo Cirúrgico", callback_data="modo_MODO_CIRURGICO")],
-        [InlineKeyboardButton("🛠 Manual", callback_data="modo_MANUAL")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_streamers")]
+        [InlineKeyboardButton("🛠 Manual", callback_data="abrir_menu_manual")],
+        [InlineKeyboardButton("🔙 Voltar para Streamers", callback_data="voltar_streamers")]
+    ]
+    await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
+    return ESCOLHENDO_MODO
+
+async def abrir_menu_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Abre o menu de configuração manual."""
+    query = update.callback_query
+    await query.answer()
+
+    texto = (
+        "⚙️ *Configuração Manual*\n\n"
+        "Ajuste os parâmetros do seu Clipador para ter controle total sobre o que é clipado. "
+        "Ideal para estratégias específicas!\n\n"
+        "1️⃣ *Mínimo de Clipes:*\n"
+        "Define quantos clipes diferentes do mesmo momento precisam ser criados para que o bot considere o evento como viral. (Ex: 3)\n\n"
+        "2️⃣ *Intervalo entre Clipes (segundos):*\n"
+        "O tempo máximo em segundos entre um clipe e outro para que eles sejam agrupados no mesmo evento. (Ex: 60)\n\n"
+        "3️⃣ *Frequência de Monitoramento (minutos):*\n"
+        "De quantos em quantos minutos o bot deve verificar por novos clipes. Um valor menor significa clipes mais rápidos, mas mais uso da API. (Valor mínimo recomendado: 2 minutos)\n\n"
+        "⚠️ *Atenção:* A configuração destes parâmetros estará disponível em breve."
+    )
+
+    botoes = [
+        [InlineKeyboardButton("1️⃣ Mínimo de clipes (Em breve)", callback_data="config_manual_placeholder")],
+        [InlineKeyboardButton("2️⃣ Intervalo (segundos) (Em breve)", callback_data="config_manual_placeholder")],
+        [InlineKeyboardButton("3️⃣ Frequência (minutos) (Em breve)", callback_data="config_manual_placeholder")],
+        [InlineKeyboardButton("🔙 Voltar para Modos", callback_data="escolher_modo")]
+    ]
+
+    await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
+    return ESCOLHENDO_MODO
+
+async def config_manual_placeholder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback de placeholder para botões de configuração manual."""
+    query = update.callback_query
+    await query.answer("Esta funcionalidade estará disponível em breve!", show_alert=True)
+
+async def salvar_modo_monitoramento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    modo = query.data.replace("modo_", "")
+    context.user_data["modo_monitoramento"] = modo
+    # Atualiza persistência
+    if "canal_config" in context.user_data:
+        context.user_data["canal_config"]["modo"] = modo
+
+    telegram_id = query.from_user.id
+    # Salvar progresso da configuração (etapa modo)
+    from core.database import salvar_progresso_configuracao
+    salvar_progresso_configuracao(telegram_id, etapa="modo", dados_parciais={
+        "modo_monitoramento": modo
+    })
+    twitch_client_id = context.user_data.get("twitch_id")
+    twitch_client_secret = context.user_data.get("twitch_secret")
+    streamers = context.user_data.get("streamers", [])
+
+    texto = (
+        f"📋 *Revisão final dos dados:*\n\n"
+        f"👤 Usuário: @{query.from_user.username or query.from_user.first_name}\n"
+        f"🧪 Client ID: `{twitch_client_id}`\n"
+        f"🔐 Client Secret: `{twitch_client_secret[:6]}...`\n"
+        f"📺 Streamers: `{', '.join(streamers) if streamers else 'Nenhum'}`\n"
+        f"🧠 Modo: `{modo}`\n\n"
+        f"⚠️ Após salvar, você terá até 1 hora para alterar os streamers preenchidos.\n"
+        f"Slots vazios poderão ser preenchidos depois, sem prazo."
+    )
+    for msg_id in context.user_data.get("mensagens_para_apagar", []):
+        try:
+            await context.bot.delete_message(chat_id=query.from_user.id, message_id=msg_id)
+        except:
+            pass
+    context.user_data["mensagens_para_apagar"] = []
+    botoes = [
+        [InlineKeyboardButton("✅ Confirmar e salvar", callback_data="confirmar_salvar_canal")],
+        [InlineKeyboardButton("🔙 Voltar", callback_data="escolher_modo")]
     ]
     await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
     return ESCOLHENDO_MODO
@@ -496,46 +671,91 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
     streamers = context.user_data.get("streamers") or canal_config.get("streamers", [])
     modo = context.user_data.get("modo_monitoramento") or canal_config.get("modo")
 
-    # Apagar mensagens antigas
+    # Get the ID of the message that triggered this callback
+    current_message_id = query.message.message_id if query.message else None
+
+    # Apagar mensagens antigas, exceto a mensagem atual que será editada
+    messages_to_delete_ids = []
     for msg_id in context.user_data.get("mensagens_para_apagar", []):
+        if msg_id != current_message_id:
+            messages_to_delete_ids.append(msg_id)
+
+    for msg_id in messages_to_delete_ids:
         try:
             await context.bot.delete_message(chat_id=telegram_id, message_id=msg_id)
-        except:
-            pass
-    context.user_data["mensagens_para_apagar"] = []
+        except Exception as e:
+            logger.warning(f"Could not delete message {msg_id}: {e}")
+    context.user_data["mensagens_para_apagar"] = [current_message_id] if current_message_id else []
 
-    # 1. Gerar a imagem personalizada ANTES de criar o canal
-    await query.edit_message_text("⏳ Gerando imagem de perfil personalizada...")
-    caminho_imagem_personalizada = await gerar_imagem_canal_personalizada(telegram_id, context)
+    try:
+        # 1. Gerar a imagem personalizada ANTES de criar o canal
+        await query.edit_message_text("⏳ Gerando imagem de perfil personalizada...")
+        caminho_imagem_personalizada = await gerar_imagem_canal_personalizada(telegram_id, context)
 
-    # 2. Salvar configuração e criar o canal
-    await query.edit_message_text("⏳ Salvando configurações e criando seu canal...")
-    salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo)
-    # Limpar progresso da configuração ao finalizar
-    from core.database import limpar_progresso_configuracao
-    limpar_progresso_configuracao(telegram_id)
-    # atualizar_telegram_id_usuario(telegram_id) # Não parece ser mais necessário aqui
-    id_canal, link_canal = await criar_canal_telegram(
-        nome_usuario=username, telegram_id=telegram_id, caminho_imagem=caminho_imagem_personalizada
-    )
-    
-    # Salva o link do canal no banco de dados para uso futuro
-    from core.database import salvar_link_canal
-    salvar_link_canal(telegram_id, id_canal, link_canal)
-    
-    # Marca a configuração como completa no banco de dados de usuários
-    marcar_configuracao_completa(telegram_id, True)
+        # 2. Salvar configuração e criar o canal
+        await query.edit_message_text("⏳ Salvando configurações e criando seu canal...")
+        salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo)
+        id_canal, link_canal = await criar_canal_telegram(
+            nome_usuario=username, telegram_id=telegram_id, nome_exibicao=query.from_user.first_name, caminho_imagem=caminho_imagem_personalizada
+        )
+        # Salva o link do canal no banco de dados para uso futuro
+        from core.database import salvar_link_canal
+        salvar_link_canal(telegram_id, id_canal, link_canal)
+        # Marca a configuração como completa no banco de dados de usuários
+        marcar_configuracao_completa(telegram_id, True)
 
-    await query.edit_message_text(
-        f"✅ Tudo pronto!\n\n"
-        f"📢 Seu canal exclusivo foi criado com sucesso!\n\n"
-        "Você começará a receber clipes automaticamente com base nas suas configurações 🚀",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 Abrir canal", url=link_canal)]
-        ]),
-        parse_mode="Markdown"
-    )
-    return ConversationHandler.END
+        # Adiciona uma pequena pausa para garantir que o bot seja processado como membro do canal
+        import asyncio
+        await asyncio.sleep(1)
+
+        # Define a mensagem de boas-vindas
+        welcome_message_to_channel = (
+            f"🎉 Bem-vindo(a) ao seu canal Clipador, @{username}!\n\n"
+            f"Seu canal foi configurado com sucesso e está pronto para receber os melhores clipes dos seus streamers favoritos.\n\n"
+            f"Fique ligado(a)! Os clipes começarão a aparecer aqui em breve, de acordo com o modo de monitoramento que você escolheu."
+        )
+
+        # --- Start of retry logic for sending welcome message ---
+        max_retries_welcome_msg = 5
+        for i in range(max_retries_welcome_msg):
+            try:
+                await context.bot.send_message(chat_id=id_canal, text=welcome_message_to_channel, parse_mode="Markdown")
+                logger.info(f"✅ Mensagem de boas-vindas enviada para o canal {id_canal} na tentativa {i+1}.")
+                break # Message sent successfully, exit loop
+            except Exception as e:
+                error_message_str = str(e)
+                if ("Chat not found" in error_message_str or "Bad Request: chat not found" in error_message_str) and i < max_retries_welcome_msg - 1:
+                    logger.warning(f"Tentativa {i+1}/{max_retries_welcome_msg}: Chat not found para o canal {id_canal}. Retentando em 2 segundos...")
+                    await asyncio.sleep(2) # Wait a bit longer
+                else:
+                    logger.error(f"Falha ao enviar mensagem de boas-vindas para o canal {id_canal} após {i+1} tentativas.")
+                    raise # Re-raise if it's not "Chat not found" or if max retries reached
+        logger.info(f"✅ Canal criado e configurado com sucesso para o usuário {telegram_id}. Link: {link_canal}")
+
+        await query.edit_message_text(
+            f"✅ Tudo pronto!\n\n"
+            f"📢 Seu canal exclusivo foi criado com sucesso!\n\n"
+            "Você começará a receber clipes automaticamente com base nas suas configurações 🚀",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚀 Abrir canal", url=link_canal)],
+                [InlineKeyboardButton("🏠 Menu Principal", callback_data="menu_0")]
+            ]),
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Erro crítico ao criar/configurar canal para o usuário {telegram_id}: {e}", exc_info=True)
+        await query.edit_message_text(
+            f"❌ Ocorreu um erro ao criar seu canal. Por favor, tente novamente mais tarde ou contate o suporte.\n\nDetalhes: {e}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔁 Tentar novamente", callback_data="abrir_configurar_canal")],
+                [InlineKeyboardButton("💬 Contatar Suporte", url="https://t.me/seu_suporte")] # Substitua pelo link do seu suporte
+            ]),
+            parse_mode="Markdown"
+        )
+        # Garante que o status de configuração não seja marcado como completo em caso de falha
+        marcar_configuracao_completa(telegram_id, False)
+        return ConversationHandler.END
 
 def atualizar_telegram_id_usuario(telegram_id):
     from core.database import conectar
@@ -550,7 +770,9 @@ def configurar_canal_conversa():
     return ConversationHandler(
         entry_points=[
             CallbackQueryHandler(iniciar_envio_twitch, pattern="^enviar_twitch$"),
-            CallbackQueryHandler(menu_configurar_canal, pattern="^menu_configurar_canal$"),
+            CallbackQueryHandler(menu_configurar_canal, pattern="^menu_configurar_canal$|^abrir_configurar_canal$"),
+            CallbackQueryHandler(iniciar_envio_streamers_callback, pattern="^iniciar_envio_streamers_callback$"), # New entry point for resuming streamers
+            CallbackQueryHandler(escolher_modo_monitoramento_callback, pattern="^escolher_modo_monitoramento_callback$"), # New entry point for resuming mode
             CallbackQueryHandler(responder_menu_7_configurar, pattern="^continuar_configuracao$")
         ],
         states={
@@ -561,12 +783,14 @@ def configurar_canal_conversa():
             ],
             ESCOLHENDO_MODO: [
                 CallbackQueryHandler(mostrar_botoes_modos, pattern="^escolher_modo$"),
+                CallbackQueryHandler(abrir_menu_manual, pattern="^abrir_menu_manual$"),
+                CallbackQueryHandler(config_manual_placeholder, pattern="^config_manual_placeholder$"),
                 CallbackQueryHandler(salvar_modo_monitoramento, pattern="^modo_"),
                 CallbackQueryHandler(voltar_streamers, pattern="^voltar_streamers$"),
                 CallbackQueryHandler(confirmar_salvar_canal, pattern="^confirmar_salvar_canal$")
             ]
         },
-        fallbacks=[],
+        fallbacks=[CommandHandler("start", menu_inicial.responder_inicio)],
         allow_reentry=True
     )
 

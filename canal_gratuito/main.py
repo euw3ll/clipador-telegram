@@ -1,27 +1,24 @@
 import os
 import time
 from datetime import datetime, timezone
+import asyncio
+from typing import TYPE_CHECKING
 
 from memoria.estado import carregar_estado, salvar_estado
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from core.ambiente import TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET # Importar as credenciais globais
 from .core.twitch import TwitchAPI
-from .core.monitor import (
+from .core.monitor import ( # Importando as funções e constantes necessárias
     agrupar_clipes_por_proximidade,
-    identificar_grupos_virais,
     get_time_minutes_ago,
     minimo_clipes_por_viewers,
     eh_clipe_ao_vivo_real,
-    INTERVALO_SEGUNDOS,
+    INTERVALO_SEGUNDOS, # Mantido para o critério do canal gratuito
     INTERVALO_MONITORAMENTO,
 )
-from .core.telegram import (
-    enviar_mensagem,
-    atualizar_descricao_telegram,
-    enviar_mensagem_promocional,
-    enviar_header_streamers,
-    enviar_mensagem_atualizacao_streamers,
-    atualizar_descricao_telegram_offline,
-)
 from configuracoes import (
+    TELEGRAM_CHAT_ID,
     INTERVALO_MENSAGEM_PROMOCIONAL,
     INTERVALO_MENSAGEM_HEADER,
     INTERVALO_ATUALIZACAO_STREAMERS,
@@ -41,12 +38,14 @@ TEMPO_CONSIDERADO_OFFLINE = 1200    # Em segundos (20min) para buscar clipes ret
 def limpar_terminal():
     os.system("cls" if os.name == "nt" else "clear")
 
+if TYPE_CHECKING:
+    from telegram.ext import Application
 
-if __name__ == "__main__":
+async def main(application: "Application"):
     if TIPO_LOG == "DESENVOLVEDOR":
         print("🔌 Conectando à Twitch API...")
 
-    twitch = TwitchAPI()
+    twitch = TwitchAPI(TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
 
     if TIPO_LOG == "DESENVOLVEDOR":
         print("📂 Carregando estado do bot...")
@@ -57,6 +56,7 @@ if __name__ == "__main__":
     estado.setdefault("ultimo_envio_header", 0)
     estado.setdefault("ultimo_envio_atualizacao_streamers", 0)
     estado.setdefault("grupos_enviados", [])
+    estado.setdefault("ultima_descricao", "")
 
     try:
         while True:
@@ -104,12 +104,13 @@ if __name__ == "__main__":
                 if TIPO_LOG == "DESENVOLVEDOR":
                     print(f"🔎 {len(clipes_novos)} clipes novos encontrados.")
 
-                grupos = agrupar_clipes_por_proximidade(clipes_novos, intervalo_segundos=INTERVALO_SEGUNDOS)
                 stream = twitch.get_stream_info(user_id)
                 viewers = stream["viewer_count"] if stream else 0
                 minimo_clipes = minimo_clipes_por_viewers(viewers)
                 minimo_clipes_global = max(minimo_clipes_global, minimo_clipes)
-                virais = identificar_grupos_virais(grupos, minimo_clipes=minimo_clipes)
+
+                # A função agrupar_clipes_por_proximidade agora retorna apenas os grupos que já são "virais"
+                virais = agrupar_clipes_por_proximidade(clipes_novos, INTERVALO_SEGUNDOS, minimo_clipes)
 
                 for grupo in virais:
                     inicio = grupo["inicio"]
@@ -140,7 +141,13 @@ if __name__ == "__main__":
                         download_url = clipe_url
 
                     if ENVIAR_CLIPES:
-                        enviar_mensagem(mensagem, botao_url=download_url, botao_texto="📥 BAIXAR CLIPE")
+                        botoes = [[InlineKeyboardButton("📥 BAIXAR CLIPE", url=download_url)]]
+                        await application.bot.send_message(
+                            chat_id=TELEGRAM_CHAT_ID,
+                            text=mensagem,
+                            reply_markup=InlineKeyboardMarkup(botoes),
+                            parse_mode="HTML"
+                        )
 
                     estado["grupos_enviados"].append({
                         "inicio": inicio.isoformat(),
@@ -154,21 +161,38 @@ if __name__ == "__main__":
 
                     grupo_enviado = True
 
-                if ATUALIZAR_DESCRICAO:
-                    stream_status = twitch.get_stream_status(user_id)
-                    try:
-                        logins_monitorados = [s["login"] for s in top_streamers]
-                        atualizar_descricao_telegram(minimo_clipes, INTERVALO_SEGUNDOS, QUANTIDADE_STREAMERS, logins=logins_monitorados)
-                    except Exception as e:
+            # ATUALIZAÇÃO DA DESCRIÇÃO (MOVIDO PARA FORA DO LOOP DE STREAMERS)
+            if ATUALIZAR_DESCRICAO:
+                try:
+                    logins_monitorados = [s["login"] for s in top_streamers]
+                    cabecalho = (
+                        f"O CLIPADOR ESTÁ ONLINE 😎\n"
+                        f"👀 Monitorando os {QUANTIDADE_STREAMERS} streamers 🇧🇷 mais assistidos agora 👇"
+                    )
+                    lista = "\n" + "\n".join([f"• @{login}" for login in logins_monitorados]) if logins_monitorados else ""
+                    criterio = f"\n🔥 Critério: Grupo de {minimo_clipes_global} clipes em {INTERVALO_SEGUNDOS}s"
+                    descricao_nova = f"{cabecalho}{lista}{criterio}"
+
+                    if len(descricao_nova) > 255:
+                        descricao_nova = descricao_nova[:252] + "..."
+
+                    if descricao_nova != estado.get("ultima_descricao"):
+                        await application.bot.set_chat_description(chat_id=TELEGRAM_CHAT_ID, description=descricao_nova)
+                        estado["ultima_descricao"] = descricao_nova
+                        print("✅ Descrição do canal atualizada com sucesso.")
+                except Exception as e:
+                    if "Chat description is not modified" not in str(e):
                         print(f"⚠️ Erro ao atualizar descrição: {e}")
 
             if grupo_enviado:
                 if INTERVALO_MENSAGEM_PROMOCIONAL > 0 and agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
-                    enviar_mensagem_promocional()
+                    mensagem_promo = "<b>🤑 Transforme clipes em dinheiro!</b>\nCom o Clipador, você tem acesso aos melhores clipes em tempo real, prontos para você monetizar.\n\nGaranta agora 👉 @ClipadorBot"
+                    await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem_promo, parse_mode="HTML")
                     estado["ultimo_envio_promocional"] = agora
 
                 if INTERVALO_ATUALIZACAO_STREAMERS > 0 and agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
-                    enviar_mensagem_atualizacao_streamers(qtd=len(top_streamers))
+                    mensagem_update = f"Estamos acompanhando em tempo real os <b>{len(top_streamers)} streamers mais assistidos do Brasil</b> no momento.\n\n📺 Fique ligado e aproveite os melhores clipes! 🎯"
+                    await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem_update, parse_mode="HTML")
                     estado["ultimo_envio_atualizacao_streamers"] = agora
 
             total_enviados = total_ao_vivo + total_vod
@@ -191,12 +215,17 @@ if __name__ == "__main__":
 
             estado["ultima_execucao"] = datetime.now(timezone.utc).isoformat()
             salvar_estado(estado)
-            time.sleep(INTERVALO_MONITORAMENTO)
+            await asyncio.sleep(INTERVALO_MONITORAMENTO)
 
-    except KeyboardInterrupt:
+    except asyncio.CancelledError:
         try:
-            atualizar_descricao_telegram_offline()
-            print("\n🛑 Clipador encerrado.")
+            descricao_offline = "O CLIPADOR ESTÁ OFFLINE 😭"
+            await application.bot.set_chat_description(chat_id=TELEGRAM_CHAT_ID, description=descricao_offline)
+            print("\n🛑 Monitor do canal gratuito encerrado.")
         except Exception as e:
-            print(f"⚠️ Erro ao atualizar descrição OFFLINE: {e}")
+            print(f"⚠️ Erro ao atualizar descrição OFFLINE no monitor gratuito: {e}")
+        salvar_estado(estado)
+        raise # Re-raise CancelledError para que a tarefa seja finalizada corretamente
+    except Exception as e:
+        print(f"❌ Erro inesperado no monitor do canal gratuito: {e}")
         salvar_estado(estado)

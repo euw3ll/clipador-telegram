@@ -15,6 +15,15 @@ from chat_privado.admin_commands import (
     create_channel_command, 
     delete_channel_command
 )
+from chat_privado.menus.menu_gerenciamento import (
+    ver_plano_atual,
+    abrir_menu_gerenciar_canal,
+    placeholder_callback,
+    abrir_menu_alterar_modo,
+    salvar_novo_modo,
+    gerenciar_streamers_conversa
+)
+
 
 # Menus interativos
 from chat_privado.menus.menu_callback import (
@@ -88,6 +97,16 @@ def registrar_handlers(application):
     application.add_handler(CallbackQueryHandler(responder_menu_7_configurar, pattern="^continuar_configuracao$"))
     # Acesso direto ao menu de configuração do canal pelo botão principal
     application.add_handler(CallbackQueryHandler(responder_menu_7_configurar, pattern="^configurar_canal$"))
+
+    # Menu 8 - Ver plano atual
+    application.add_handler(CallbackQueryHandler(ver_plano_atual, pattern="^ver_plano_atual$"))
+
+    # Menu de Gerenciamento de Canal
+    application.add_handler(CallbackQueryHandler(abrir_menu_gerenciar_canal, pattern="^abrir_menu_gerenciar_canal$"))
+    application.add_handler(CallbackQueryHandler(abrir_menu_alterar_modo, pattern="^gerenciar_modo$"))
+    application.add_handler(CallbackQueryHandler(salvar_novo_modo, pattern="^novo_modo_"))
+    application.add_handler(CallbackQueryHandler(placeholder_callback, pattern="^comprar_slot_placeholder$"))
+
     from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
     application.add_handler(CallbackQueryHandler(menu_configurar_canal, pattern="^abrir_configurar_canal$"))
 
@@ -96,6 +115,9 @@ def registrar_handlers(application):
 
     # Conversa para configuração do canal após pagamento validado
     application.add_handler(configurar_canal_conversa())
+
+    # Conversa para gerenciar streamers
+    application.add_handler(gerenciar_streamers_conversa())
 
     application.add_handler(CommandHandler("start", responder_inicio, block=False))
 
