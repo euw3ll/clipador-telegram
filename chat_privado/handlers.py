@@ -1,126 +1,63 @@
-from telegram.ext import CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters
-import logging
-import traceback # Import para logging detalhado de erros
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 
-from chat_privado.usuarios import registrar_usuario
-
-from chat_privado.menus.menu_configurar_canal import configurar_canal_conversa
-from chat_privado.menus.menu_comandos import skip_configuracao_admin_command # Import the renamed command
-# Menus principais
-from chat_privado.menus.menu_inicial import responder_inicio, voltar_ao_menu
-from chat_privado.menus.menu_comandos import responder_help
-from chat_privado.admin_commands import (
-    reset_user_command, 
-    admin_command, 
-    create_channel_command, 
-    delete_channel_command
-)
-from chat_privado.menus.menu_gerenciamento import (
-    ver_plano_atual,
-    abrir_menu_gerenciar_canal,
-    placeholder_callback,
-    abrir_menu_alterar_modo,
-    salvar_novo_modo,
-    gerenciar_streamers_conversa
-)
-
-
-# Menus interativos
-from chat_privado.menus.menu_callback import (
+# Importar handlers dos menus
+from .menus.menu_inicial import responder_inicio
+from .menus.menu_callback import (
     responder_menu_1,
     responder_menu_2,
     responder_menu_3,
     responder_menu_4_mensal,
     responder_menu_4_plus,
     responder_menu_4_anual,
-    responder_menu_6_confirmar,
-    responder_menu_7_configurar
 )
-
-# Menus de pagamento
-from chat_privado.menus import menu_pagamento
-from chat_privado.menus.menu_pagamento import (
+from .menus.menu_pagamento import (
     pagamento_conversation_handler,
+    roteador_pagamento,
     responder_menu_5_mensal,
     responder_menu_5_plus,
     responder_menu_5_anual,
-    roteador_pagamento,
-    responder_menu_6
 )
+from .menus.menu_configurar_canal import configurar_canal_conversa
+from .menus.menu_gerenciamento import (
+    gerenciar_streamers_conversa,
+    configurar_manual_conversa,
+    abrir_menu_gerenciar_canal,
+    ver_plano_atual,
+    comprar_slot_extra,
+    abrir_menu_alterar_modo,
+    salvar_novo_modo,
+    placeholder_callback,
+)
+from .menus.menu_comandos import responder_help
 
-def registrar_handlers(application):
-    # 🟢 Mensagem inicial e comandos
-    application.add_handler(CommandHandler("start", responder_inicio, block=False))
-    application.add_handler(
-        MessageHandler(
-            filters.StatusUpdate.NEW_CHAT_MEMBERS | filters.StatusUpdate.LEFT_CHAT_MEMBER,
-            lambda update, context: registrar_usuario(update.effective_user.id, update.effective_user.full_name)
-        )
-    )
-    application.add_handler(CommandHandler("help", responder_help))
+def registrar_handlers(app: Application):
+    """Registra todos os command, callback e conversation handlers do chat privado."""
 
-    # Comandos de Admin
-    application.add_handler(CommandHandler("admin", admin_command))
-    application.add_handler(CommandHandler("resetuser", reset_user_command))
-    application.add_handler(CommandHandler("skipconfig", skip_configuracao_admin_command)) # Register the renamed command
-    application.add_handler(CommandHandler("createchannel", create_channel_command))
-    application.add_handler(CommandHandler("delchannel", delete_channel_command))
+    # 1. Handlers de Conversa (devem vir primeiro para ter prioridade)
+    app.add_handler(pagamento_conversation_handler)
+    app.add_handler(configurar_canal_conversa())
+    app.add_handler(gerenciar_streamers_conversa())
+    app.add_handler(configurar_manual_conversa())
 
-    # 🧭 Comandos diretos equivalentes aos botões
-    application.add_handler(CommandHandler("menu", voltar_ao_menu))
-    application.add_handler(CommandHandler("como_funciona", responder_menu_1))
-    application.add_handler(CommandHandler("planos", responder_menu_2))
-    application.add_handler(CommandHandler("assinar", responder_menu_3))
+    # 2. Comandos
+    app.add_handler(CommandHandler("start", responder_inicio))
+    app.add_handler(CommandHandler("help", responder_help))
 
-    # 📋 Menus interativos via Callback
-    application.add_handler(CallbackQueryHandler(voltar_ao_menu, pattern="^menu_0$"))
-    application.add_handler(CallbackQueryHandler(responder_menu_1, pattern="^menu_1$"))
-    application.add_handler(CallbackQueryHandler(responder_menu_2, pattern="^menu_2$"))
-    application.add_handler(CallbackQueryHandler(responder_menu_3, pattern="^menu_3$"))
-
-    # Menu 4 – Escolha de plano
-    application.add_handler(CallbackQueryHandler(responder_menu_4_mensal, pattern="^menu_4_mensal$"))
-    application.add_handler(CallbackQueryHandler(responder_menu_4_plus, pattern="^menu_4_plus$"))
-    application.add_handler(CallbackQueryHandler(responder_menu_4_anual, pattern="^menu_4_anual$"))
-
-    # Menu 5 – Pagamento
-    application.add_handler(CallbackQueryHandler(responder_menu_5_mensal, pattern="^menu_5_mensal$"))
-    application.add_handler(CallbackQueryHandler(responder_menu_5_plus, pattern="^menu_5_plus$"))
-    application.add_handler(CallbackQueryHandler(responder_menu_5_anual, pattern="^menu_5_anual$"))
-    application.add_handler(CallbackQueryHandler(roteador_pagamento, pattern="^pagar_.*$"))
-
-    # Menu 6 – Já paguei
-    application.add_handler(CallbackQueryHandler(responder_menu_6_confirmar, pattern="^menu_6_confirmar$"))
-
-    # Menu 7 – Configuração do canal
-    application.add_handler(CallbackQueryHandler(responder_menu_7_configurar, pattern="^menu_7_configurar$"))
-    application.add_handler(CallbackQueryHandler(responder_menu_7_configurar, pattern="^continuar_configuracao$"))
-    # Acesso direto ao menu de configuração do canal pelo botão principal
-    application.add_handler(CallbackQueryHandler(responder_menu_7_configurar, pattern="^configurar_canal$"))
-
-    # Menu 8 - Ver plano atual
-    application.add_handler(CallbackQueryHandler(ver_plano_atual, pattern="^ver_plano_atual$"))
-
-    # Menu de Gerenciamento de Canal
-    application.add_handler(CallbackQueryHandler(abrir_menu_gerenciar_canal, pattern="^abrir_menu_gerenciar_canal$"))
-    application.add_handler(CallbackQueryHandler(abrir_menu_alterar_modo, pattern="^gerenciar_modo$"))
-    application.add_handler(CallbackQueryHandler(salvar_novo_modo, pattern="^novo_modo_"))
-    application.add_handler(CallbackQueryHandler(placeholder_callback, pattern="^comprar_slot_placeholder$"))
-
-    from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
-    application.add_handler(CallbackQueryHandler(menu_configurar_canal, pattern="^abrir_configurar_canal$"))
-
-    # Conversa para receber o e-mail do cliente
-    application.add_handler(pagamento_conversation_handler)
-
-    # Conversa para configuração do canal após pagamento validado
-    application.add_handler(configurar_canal_conversa())
-
-    # Conversa para gerenciar streamers
-    application.add_handler(gerenciar_streamers_conversa())
-
-    application.add_handler(CommandHandler("start", responder_inicio, block=False))
-
-    # Handler temporário para testar se o menu_configurar_canal está sendo chamado corretamente
-    from chat_privado.menus.menu_configurar_canal import menu_configurar_canal
-    application.add_handler(CallbackQueryHandler(menu_configurar_canal, pattern="^testar_menu_config$"))
+    # 3. Handlers de CallbackQuery (menus)
+    app.add_handler(CallbackQueryHandler(responder_inicio, pattern="^menu_0$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_1, pattern="^menu_1$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_2, pattern="^menu_2$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_3, pattern="^menu_3$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_4_mensal, pattern="^menu_4_mensal$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_4_plus, pattern="^menu_4_plus$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_4_anual, pattern="^menu_4_anual$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_5_mensal, pattern="^menu_5_mensal$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_5_plus, pattern="^menu_5_plus$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_5_anual, pattern="^menu_5_anual$"))
+    app.add_handler(CallbackQueryHandler(roteador_pagamento, pattern="^pagar_"))
+    app.add_handler(CallbackQueryHandler(abrir_menu_gerenciar_canal, pattern="^abrir_menu_gerenciar_canal$"))
+    app.add_handler(CallbackQueryHandler(ver_plano_atual, pattern="^ver_plano_atual$"))
+    app.add_handler(CallbackQueryHandler(comprar_slot_extra, pattern="^comprar_slot_extra$"))
+    app.add_handler(CallbackQueryHandler(abrir_menu_alterar_modo, pattern="^gerenciar_modo$"))
+    app.add_handler(CallbackQueryHandler(salvar_novo_modo, pattern="^novo_modo_"))
+    app.add_handler(CallbackQueryHandler(placeholder_callback, pattern="^placeholder_callback$"))

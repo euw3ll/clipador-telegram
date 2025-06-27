@@ -1,11 +1,13 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
+from configuracoes import KIRVANO_LINKS
 from core.database import (
     buscar_configuracao_canal,
     obter_plano_usuario,
     buscar_usuario_por_id,
     atualizar_modo_monitoramento,
-    atualizar_streamers_monitorados
+    atualizar_streamers_monitorados,
+    atualizar_configuracao_manual
 )
 from datetime import datetime, timedelta, timezone
 import logging
@@ -13,7 +15,11 @@ from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 
 logger = logging.getLogger(__name__)
 
-GERENCIANDO_STREAMERS, AGUARDANDO_ADICAO, AGUARDANDO_REMOCAO = range(3)
+# Estados para as conversas
+(
+    GERENCIANDO_STREAMERS, AGUARDANDO_ADICAO, AGUARDANDO_REMOCAO, # Gerenciamento de Streamers
+    CONFIG_MIN_CLIPS, CONFIG_INTERVALO, CONFIG_FREQUENCIA # Configuração Manual
+) = range(6)
 
 async def ver_plano_atual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Exibe os detalhes do plano atual do usuário."""
@@ -41,17 +47,13 @@ async def ver_plano_atual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     streamers = config.get('streamers_monitorados', '').split(',') if config and config.get('streamers_monitorados') else []
     num_streamers = len(streamers) if streamers and streamers[0] else 0
 
-    limite_streamers = 1
-    if plano == "Mensal Plus":
-        limite_streamers = 3
-    elif plano == "Anual Pro":
-        limite_streamers = 5
+    limite_streamers = config.get('slots_ativos', 1) if config else 1
 
     texto = (
         f"📋 *Seu Plano Atual*\n\n"
         f"📦 *Plano:* {plano}\n"
         f"🗓️ *Expira em:* {data_expiracao}\n"
-        f"📺 *Streamers configurados:* {num_streamers}/{limite_streamers}\n\n"
+        f"📺 *Slots em uso:* {num_streamers}/{limite_streamers}\n\n"
         "Obrigado por fazer parte do Clipador! 🔥"
     )
 
@@ -94,7 +96,7 @@ async def abrir_menu_gerenciar_canal(update: Update, context: ContextTypes.DEFAU
     botoes = [
         [InlineKeyboardButton("🧠 Alterar Modo de Monitoramento", callback_data="gerenciar_modo")],
         [InlineKeyboardButton("📺 Gerenciar Streamers", callback_data="gerenciar_streamers")],
-        [InlineKeyboardButton("➕ Comprar Slot de Streamer", callback_data="comprar_slot_placeholder")],
+        [InlineKeyboardButton("➕ Comprar Slot de Streamer", callback_data="comprar_slot_extra")],
         [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
     ]
 
@@ -103,6 +105,37 @@ async def abrir_menu_gerenciar_canal(update: Update, context: ContextTypes.DEFAU
         reply_markup=InlineKeyboardMarkup(botoes),
         parse_mode="Markdown"
     )
+
+async def comprar_slot_extra(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Exibe o menu para comprar um slot extra."""
+    query = update.callback_query
+    await query.answer()
+    context.user_data["plano_esperado"] = "Slot Extra"
+
+    texto = (
+        "➕ *Comprar Slot Extra*\n\n"
+        "Adicione um novo streamer para monitorar em seu canal!\n\n"
+        "💰 *Valor:* R$14,90\n"
+        "💳 *Pagamento:* Único (não é uma assinatura)\n\n"
+        "Clique no botão abaixo para ir para a página de pagamento. "
+        "Após a confirmação, seu novo slot será liberado automaticamente."
+    )
+
+    link_pagamento = KIRVANO_LINKS.get("Slot Extra")
+    if not link_pagamento or "COLE_SEU_LINK" in link_pagamento:
+        await query.edit_message_text(
+            "❌ A opção de compra de slot extra está indisponível no momento.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="abrir_menu_gerenciar_canal")]])
+        )
+        return
+
+    botoes = [
+        [InlineKeyboardButton("💳 Pagar R$14,90", url=link_pagamento)],
+        [InlineKeyboardButton("✅ Já paguei", callback_data="menu_6")],
+        [InlineKeyboardButton("🔙 Voltar", callback_data="abrir_menu_gerenciar_canal")]
+    ]
+
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
 
 async def placeholder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Callback de placeholder para funcionalidades em desenvolvimento."""
@@ -127,39 +160,8 @@ async def abrir_menu_alterar_modo(update: Update, context: ContextTypes.DEFAULT_
         [InlineKeyboardButton("🚀 Modo Louco", callback_data="novo_modo_MODO_LOUCO")],
         [InlineKeyboardButton("🎯 Modo Padrão", callback_data="novo_modo_MODO_PADRAO")],
         [InlineKeyboardButton("🔬 Modo Cirúrgico", callback_data="novo_modo_MODO_CIRURGICO")],
-        [InlineKeyboardButton("🛠 Manual", callback_data="abrir_menu_manual_gerenciamento")],
+        [InlineKeyboardButton("🛠 Manual", callback_data="configurar_manual_iniciar")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="abrir_menu_gerenciar_canal")]
-    ]
-
-    await query.edit_message_text(
-        text=texto,
-        reply_markup=InlineKeyboardMarkup(botoes),
-        parse_mode="Markdown"
-    )
-
-async def abrir_menu_manual_gerenciamento(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Abre o menu de configuração manual a partir do menu de gerenciamento."""
-    query = update.callback_query
-    await query.answer()
-
-    texto = (
-        "⚙️ *Configuração Manual*\n\n"
-        "Ajuste os parâmetros do seu Clipador para ter controle total sobre o que é clipado. "
-        "Ideal para estratégias específicas!\n\n"
-        "1️⃣ *Mínimo de Clipes:*\n"
-        "Define quantos clipes diferentes do mesmo momento precisam ser criados para que o bot considere o evento como viral. (Ex: 3)\n\n"
-        "2️⃣ *Intervalo entre Clipes (segundos):*\n"
-        "O tempo máximo em segundos entre um clipe e outro para que eles sejam agrupados no mesmo evento. (Ex: 60)\n\n"
-        "3️⃣ *Frequência de Monitoramento (minutos):*\n"
-        "De quantos em quantos minutos o bot deve verificar por novos clipes. Um valor menor significa clipes mais rápidos, mas mais uso da API. (Valor mínimo recomendado: 2 minutos)\n\n"
-        "⚠️ *Atenção:* A configuração destes parâmetros estará disponível em breve."
-    )
-
-    botoes = [
-        [InlineKeyboardButton("1️⃣ Mínimo de clipes (Em breve)", callback_data="placeholder_callback")],
-        [InlineKeyboardButton("2️⃣ Intervalo (segundos) (Em breve)", callback_data="placeholder_callback")],
-        [InlineKeyboardButton("3️⃣ Frequência (minutos) (Em breve)", callback_data="placeholder_callback")],
-        [InlineKeyboardButton("🔙 Voltar para Modos", callback_data="gerenciar_modo")]
     ]
 
     await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
@@ -227,17 +229,12 @@ async def _construir_menu_streamers(telegram_id: int) -> tuple[str, InlineKeyboa
             logger.warning(f"Could not parse streamers_ultima_modificacao: {last_mod_str}")
             modification_info_message = "\n\n⚠️ Erro ao verificar o período de modificação. Por favor, contate o suporte."
 
-    limite_streamers = 1
-    if plano == "Mensal Plus":
-        limite_streamers = 3
-    elif plano == "Anual Pro":
-        limite_streamers = 5
+    limite_streamers = config.get('slots_ativos', 1)
 
     texto_lista = "\n".join([f"{i+1}. `{s}`" for i, s in enumerate(streamers)]) if num_streamers > 0 else "Nenhum streamer configurado."
 
     texto = (
         f"📺 *Gerenciar Streamers*\n\n"
-        f"Seu plano atual (`{plano}`) permite monitorar até *{limite_streamers}* streamers.\n"
         f"Você está usando *{num_streamers}/{limite_streamers}* slots.\n\n"
         f"*Sua lista atual:*\n{texto_lista}\n\n"
         f"{modification_info_message}" # Mensagem sobre o tempo de alteração
@@ -359,6 +356,149 @@ def gerenciar_streamers_conversa():
             AGUARDANDO_REMOCAO: [MessageHandler(filters.TEXT & ~filters.COMMAND, remover_streamer)],
         },
         fallbacks=[CallbackQueryHandler(encerrar_gerenciamento_streamers, pattern="^voltar_gerenciamento$")],
+        map_to_parent={
+            ConversationHandler.END: -1
+        }
+    )
+
+# --- CONVERSA DE CONFIGURAÇÃO MANUAL ---
+
+async def iniciar_configuracao_manual(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Inicia a conversa para configurar o modo manual."""
+    query = update.callback_query
+    await query.answer()
+    
+    config = buscar_configuracao_canal(update.effective_user.id)
+    min_clips = config.get('manual_min_clips', 'Não definido')
+    
+    texto = (
+        f"⚙️ *Configuração Manual: Mínimo de Clipes*\n\n"
+        f"Defina quantos clipes diferentes do mesmo momento precisam ser criados para que o bot considere o evento como viral.\n\n"
+        f"🔹 *Valor atual:* `{min_clips}`\n"
+        f"💡 *Recomendado:* 3\n"
+        f"⚠️ *Limite:* Mínimo 2.\n\n"
+        "Por favor, envie o novo valor."
+    )
+    botoes = [[InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_config_manual")]]
+    
+    await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    return CONFIG_MIN_CLIPS
+
+async def receber_min_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Recebe e valida o mínimo de clipes."""
+    try:
+        valor = int(update.message.text)
+        if valor < 2:
+            await update.message.reply_text("❌ Valor inválido. O mínimo de clipes deve ser 2 ou mais. Tente novamente.")
+            return CONFIG_MIN_CLIPS
+    except ValueError:
+        await update.message.reply_text("❌ Por favor, envie apenas um número. Tente novamente.")
+        return CONFIG_MIN_CLIPS
+        
+    context.user_data['manual_min_clips'] = valor
+    
+    config = buscar_configuracao_canal(update.effective_user.id)
+    intervalo = config.get('manual_interval_sec', 'Não definido')
+
+    texto = (
+        f"✅ Mínimo de clipes definido para: *{valor}*\n\n"
+        f"⚙️ *Configuração Manual: Intervalo entre Clipes*\n\n"
+        f"Defina o tempo máximo em segundos entre um clipe e outro para que eles sejam agrupados no mesmo evento.\n\n"
+        f"🔹 *Valor atual:* `{intervalo}`\n"
+        f"💡 *Recomendado:* 60\n"
+        f"⚠️ *Limite:* Mínimo 10 segundos.\n\n"
+        "Por favor, envie o novo valor."
+    )
+    botoes = [[InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_config_manual")]]
+    
+    await update.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    return CONFIG_INTERVALO
+
+async def receber_intervalo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Recebe e valida o intervalo em segundos."""
+    try:
+        valor = int(update.message.text)
+        if valor < 10:
+            await update.message.reply_text("❌ Valor inválido. O intervalo deve ser de no mínimo 10 segundos. Tente novamente.")
+            return CONFIG_INTERVALO
+    except ValueError:
+        await update.message.reply_text("❌ Por favor, envie apenas um número. Tente novamente.")
+        return CONFIG_INTERVALO
+        
+    context.user_data['manual_interval_sec'] = valor
+    
+    config = buscar_configuracao_canal(update.effective_user.id)
+    frequencia = config.get('manual_freq_min', 'Não definido')
+
+    texto = (
+        f"✅ Intervalo definido para: *{valor} segundos*\n\n"
+        f"⚙️ *Configuração Manual: Frequência de Monitoramento*\n\n"
+        f"Defina de quantos em quantos *segundos* o bot deve verificar por novos clipes. Um valor menor é mais rápido.\n\n"
+        f"🔹 *Valor atual:* `{frequencia}`\n"
+        f"💡 *Recomendado:* 45 segundos\n"
+        f"⚠️ *Limite:* Mínimo 30 segundos.\n\n"
+        "Por favor, envie o novo valor."
+    )
+    botoes = [[InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_config_manual")]]
+    
+    await update.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    return CONFIG_FREQUENCIA
+
+async def receber_frequencia_e_salvar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Recebe a frequência, salva todas as configurações manuais e encerra a conversa."""
+    telegram_id = update.effective_user.id
+    try:
+        valor = int(update.message.text)
+        if valor < 30:
+            await update.message.reply_text("❌ Valor inválido. A frequência deve ser de no mínimo 30 segundos. Tente novamente.")
+            return CONFIG_FREQUENCIA
+    except ValueError:
+        await update.message.reply_text("❌ Por favor, envie apenas um número. Tente novamente.")
+        return CONFIG_FREQUENCIA
+        
+    min_clips = context.user_data.pop('manual_min_clips')
+    interval_sec = context.user_data.pop('manual_interval_sec')
+    freq_sec = valor
+    
+    atualizar_configuracao_manual(telegram_id=telegram_id, min_clips=min_clips, interval_sec=interval_sec, freq_sec=freq_sec)
+    atualizar_modo_monitoramento(telegram_id, "MANUAL")
+    
+    texto_sucesso = (
+        f"✅ *Configuração Manual Salva!*\n\n"
+        f"Seu modo de monitoramento foi alterado para `MANUAL` com os seguintes parâmetros:\n"
+        f"- Mínimo de Clipes: `{min_clips}`\n"
+        f"- Intervalo: `{interval_sec}` segundos\n"
+        f"- Frequência: `{freq_sec}` segundos"
+    )
+    botoes = [[InlineKeyboardButton("🔙 Voltar ao Gerenciamento", callback_data="abrir_menu_gerenciar_canal")]]
+    
+    await update.message.reply_text(text=texto_sucesso, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
+    return ConversationHandler.END
+
+async def cancelar_config_manual(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancela a conversa de configuração manual."""
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data.pop('manual_min_clips', None)
+    context.user_data.pop('manual_interval_sec', None)
+    
+    await query.edit_message_text(
+        "Operação cancelada.",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar para Modos", callback_data="gerenciar_modo")]])
+    )
+    return ConversationHandler.END
+
+def configurar_manual_conversa():
+    """Cria o ConversationHandler para a configuração do modo manual."""
+    return ConversationHandler(
+        entry_points=[CallbackQueryHandler(iniciar_configuracao_manual, pattern="^configurar_manual_iniciar$")],
+        states={
+            CONFIG_MIN_CLIPS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_min_clips)],
+            CONFIG_INTERVALO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_intervalo)],
+            CONFIG_FREQUENCIA: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_frequencia_e_salvar)],
+        },
+        fallbacks=[CallbackQueryHandler(cancelar_config_manual, pattern="^cancelar_config_manual$")],
         map_to_parent={
             ConversationHandler.END: -1
         }

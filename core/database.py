@@ -43,7 +43,11 @@ def criar_tabelas():
             modo_monitoramento TEXT,
             slots_ativos INTEGER DEFAULT 1,
             data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- Data de criação do registro
-            streamers_ultima_modificacao TIMESTAMP
+            streamers_ultima_modificacao TIMESTAMP,
+            -- Configurações para o modo manual
+            manual_min_clips INTEGER,
+            manual_interval_sec INTEGER,
+            manual_freq_sec INTEGER
         )
     """)
 
@@ -66,6 +70,14 @@ def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_cli
     cursor = conn.cursor()
     streamers_str = ",".join(streamers)
 
+    # Define a quantidade de slots com base no plano do usuário
+    plano = obter_plano_usuario(telegram_id)
+    slots_iniciais = 1
+    if plano == "Mensal Plus":
+        slots_iniciais = 3
+    elif plano == "Anual Pro":
+        slots_iniciais = 4  # 3 do plano + 1 de bônus
+
     # Verifica se já existe uma configuração para este usuário
     cursor.execute("SELECT * FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
     existe = cursor.fetchone()
@@ -73,16 +85,16 @@ def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_cli
     if existe:
         # Atualiza a configuração existente
         cursor.execute("""
-            UPDATE configuracoes_canal -- Atualiza todos os campos, incluindo o timestamp da última modificação de streamers
-            SET twitch_client_id = ?, twitch_client_secret = ?, streamers_monitorados = ?, modo_monitoramento = ?, streamers_ultima_modificacao = CURRENT_TIMESTAMP
+            UPDATE configuracoes_canal
+            SET twitch_client_id = ?, twitch_client_secret = ?, streamers_monitorados = ?, modo_monitoramento = ?, slots_ativos = ?, streamers_ultima_modificacao = CURRENT_TIMESTAMP
             WHERE telegram_id = ?
-        """, (twitch_client_id, twitch_client_secret, streamers_str, modo, telegram_id))
+        """, (twitch_client_id, twitch_client_secret, streamers_str, modo, slots_iniciais, telegram_id))
     else:
         # Insere uma nova configuração
         cursor.execute("""
-            INSERT INTO configuracoes_canal (telegram_id, twitch_client_id, twitch_client_secret, streamers_monitorados, modo_monitoramento, streamers_ultima_modificacao) -- Insere o timestamp na criação
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, (telegram_id, twitch_client_id, twitch_client_secret, streamers_str, modo))
+            INSERT INTO configuracoes_canal (telegram_id, twitch_client_id, twitch_client_secret, streamers_monitorados, modo_monitoramento, slots_ativos, streamers_ultima_modificacao)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (telegram_id, twitch_client_id, twitch_client_secret, streamers_str, modo, slots_iniciais))
     conn.commit()
     conn.close()
 
@@ -299,9 +311,36 @@ def atualizar_data_expiracao(email: str, nova_data: 'datetime'):
     conn.commit()
     conn.close()
 
+def migrar_tabelas():
+    """Adiciona colunas faltantes a tabelas existentes para evitar erros após atualizações."""
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        # Migração para a tabela configuracoes_canal
+        cursor.execute("PRAGMA table_info(configuracoes_canal)")
+        colunas_existentes = [col[1] for col in cursor.fetchall()]
+
+        colunas_a_adicionar = {
+            "manual_min_clips": "INTEGER",
+            "manual_interval_sec": "INTEGER",
+            "manual_freq_sec": "INTEGER"
+        }
+
+        for nome_coluna, tipo_coluna in colunas_a_adicionar.items():
+            if nome_coluna not in colunas_existentes:
+                cursor.execute(f"ALTER TABLE configuracoes_canal ADD COLUMN {nome_coluna} {tipo_coluna}")
+                logger.info(f"Migração: Coluna '{nome_coluna}' adicionada à tabela 'configuracoes_canal'.")
+        
+        conn.commit()
+    except sqlite3.Error as e:
+        logger.error(f"Erro durante a migração do banco de dados: {e}")
+    finally:
+        conn.close()
+
 
 # Certifique-se de criar as tabelas ao iniciar o projeto
 criar_tabelas()
+migrar_tabelas()
 criar_tabela_compras()
 
 
@@ -489,6 +528,49 @@ def marcar_configuracao_completa(telegram_id, status: bool):
     cursor.execute("UPDATE usuarios SET configuracao_finalizada = ? WHERE telegram_id = ?", (1 if status else 0, telegram_id))
     conn.commit()
     conn.close()
+
+def adicionar_slot_extra(telegram_id: int):
+    """Adiciona um slot extra para o usuário, incrementando o contador."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE configuracoes_canal
+        SET slots_ativos = slots_ativos + 1
+        WHERE telegram_id = ?
+    """, (telegram_id,))
+    conn.commit()
+    conn.close()
+    logger.info(f"Slot extra adicionado para o usuário {telegram_id}.")
+
+def atualizar_configuracao_manual(telegram_id: int, min_clips: int = None, interval_sec: int = None, freq_sec: int = None):
+    """Atualiza os parâmetros de configuração manual de um usuário."""
+    conn = conectar()
+    cursor = conn.cursor()
+
+    updates = []
+    params = []
+
+    if min_clips is not None:
+        updates.append("manual_min_clips = ?")
+        params.append(min_clips)
+    if interval_sec is not None:
+        updates.append("manual_interval_sec = ?")
+        params.append(interval_sec)
+    if freq_sec is not None:
+        updates.append("manual_freq_sec = ?")
+        params.append(freq_sec)
+
+    if not updates:
+        conn.close()
+        return
+
+    params.append(telegram_id)
+    query = f"UPDATE configuracoes_canal SET {', '.join(updates)} WHERE telegram_id = ?"
+    
+    cursor.execute(query, tuple(params))
+    conn.commit()
+    conn.close()
+    logger.info(f"Configuração manual atualizada para o usuário {telegram_id}.")
 
 def is_configuracao_completa(telegram_id):
     conn = conectar()

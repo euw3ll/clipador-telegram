@@ -28,3 +28,11 @@ USAR_VERIFICACAO_AO_VIVO = True
 MODO_MANUTENCAO = False
 GATEWAY_PAGAMENTO = "KIRVANO"  # 'MERCADOPAGO' ou 'KIRVANO'
 SUPPORT_USERNAME = "euw3ll" # Usuário para o botão de suporte
+
+# Links de pagamento da Kirvano
+KIRVANO_LINKS = {
+    "Mensal Solo": "https://pay.kirvano.com/3f315c85-0164-4b55-81f2-6ffa661b670c",
+    "Mensal Plus": "https://pay.kirvano.com/6283e70f-f385-4355-8cff-e02275935cde",
+    "Anual Pro": "https://pay.kirvano.com/09287018-c006-4c0e-87c7-08a6e4464e79",
+    "Slot Extra": "COLE_SEU_LINK_DE_PAGAMENTO_DO_SLOT_EXTRA_AQUI"
+}

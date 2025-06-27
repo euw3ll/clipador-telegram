@@ -40,12 +40,13 @@ from core.database import (
     buscar_pagamento_por_email, # Usado para buscar detalhes da compra
     registrar_log_pagamento, # Adicionado importação
     vincular_email_usuario,
-    vincular_compra_e_ativar_usuario # Nova função para ativar usuário e vincular compra
+    vincular_compra_e_ativar_usuario, # Nova função para ativar usuário e vincular compra
+    adicionar_slot_extra
 )
 from io import BytesIO
 import chat_privado.menus.menu_inicial as menu_inicial # Importa o módulo inteiro
 from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao
-from configuracoes import GATEWAY_PAGAMENTO
+from configuracoes import GATEWAY_PAGAMENTO, KIRVANO_LINKS
 import base64
 
 PEDIR_EMAIL = 1
@@ -56,12 +57,6 @@ def obter_valor_plano(plano: str) -> float:
         "Mensal Plus": 49.90,
         "Anual Pro": 299.00
     }.get(plano, 0.0)
-
-LINKS_KIRVANO = {
-    "Mensal Solo": "https://pay.kirvano.com/3f315c85-0164-4b55-81f2-6ffa661b670c",
-    "Mensal Plus": "https://pay.kirvano.com/6283e70f-f385-4355-8cff-e02275935cde",
-    "Anual Pro": "https://pay.kirvano.com/09287018-c006-4c0e-87c7-08a6e4464e79"
-}
 
 # MENU 5: Mostrar opções de pagamento por plano
 async def responder_menu_5_mensal(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -91,7 +86,7 @@ async def exibir_opcoes_pagamento(update: Update, context: ContextTypes.DEFAULT_
     if GATEWAY_PAGAMENTO == "KIRVANO":
         texto += "Clique abaixo para acessar o link de pagamento:"
         botoes = [
-            [InlineKeyboardButton("📎 Acessar link de pagamento", url=LINKS_KIRVANO[plano_nome])],
+            [InlineKeyboardButton("📎 Acessar link de pagamento", url=KIRVANO_LINKS[plano_nome])],
             [InlineKeyboardButton("✅ Já paguei", callback_data="menu_6")],
             [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
         ]
@@ -206,13 +201,16 @@ async def responder_menu_6(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         # Salva o ID da mensagem de botões para poder editar depois
         context.user_data["mensagem_pagamento_id"] = query.message.message_id
-    await avancar_para_nova_etapa(
-        update,
-        context,
+
+    # Envia uma nova mensagem pedindo o e-mail, respondendo à mensagem do menu
+    # para que o menu original não seja apagado.
+    nova_msg = await query.message.reply_text(
         "😎 Beleza! Agora me diga qual e-mail você usou para fazer o pagamento:",
-        botoes=[],
-        usar_force_reply=True
+        reply_markup=ForceReply(selective=True)
     )
+    # Salva o ID da mensagem de "qual seu e-mail" para apagar depois
+    context.user_data["mensagem_pedindo_email_id"] = nova_msg.message_id
+
     return PEDIR_EMAIL
 
 async def pular_pagamento_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: # Adiciona 'plano_simulado' como argumento opcional
@@ -251,18 +249,24 @@ async def pular_pagamento_admin(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recebe e-mail do usuário ou usa o e-mail já registrado (compra de slot extra)."""
     from core.gateway.kirvano import verificar_status_compra_para_ativacao # Função correta
 
-    context.user_data.setdefault("mensagens_para_apagar", []).append(update.message.message_id)
-    email = update.message.text.strip()
-    vincular_email_usuario(update.effective_user.id, email) # Mantido, pois associa o email ao usuário no DB
+    # Se o email já foi passado, usa ele. Senão, tenta obter da mensagem do usuário.
+    email = context.args[0] if context.args else None
+    if not email and update.message:
+        # Apaga a mensagem de prompt e a resposta do usuário
+        mensagem_pedindo_email_id = context.user_data.pop("mensagem_pedindo_email_id", None)
+        if mensagem_pedindo_email_id:
+            try:
+                await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=mensagem_pedindo_email_id)
+            except Exception: pass
+        try:
+            await update.message.delete() # Apaga o e-mail enviado pelo usuário
+        except Exception: pass
+        email = update.message.text.strip()
 
-    # Apaga a mensagem anterior com os botões, se possível
-    plano_esperado = context.user_data.get("plano_esperado", "Mensal Solo")
-    try:
-        await update.message.delete()
-    except Exception as e:
-        print(f"[DEBUG] Não foi possível apagar a mensagem anterior: {e}")
+    vincular_email_usuario(update.effective_user.id, email) # Mantido, pois associa o email ao usuário no DB
 
     if not email or "@" not in email or "." not in email:
         await update.message.reply_text(
@@ -307,73 +311,101 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return PEDIR_EMAIL
 
+    # Se o status for final (aprovado, não encontrado, etc.), apaga o menu de pagamento.
+    # Se for pendente, o menu será editado, não apagado.
+    if status_compra != "pending":
+        mensagem_pagamento_id = context.user_data.pop("mensagem_pagamento_id", None)
+        if mensagem_pagamento_id:
+            try:
+                await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=mensagem_pagamento_id)
+            except Exception: pass
+
     # Lógica centralizada de tratamento de status
     if status_compra == "approved":
-        # Se o método de pagamento é FREE, verifica se o usuário é admin
-        if metodo_pagamento and metodo_pagamento.upper() == "FREE": # Verifica se é um plano "FREE"
-            if not is_usuario_admin(telegram_id):
+        plano_esperado = context.user_data.get("plano_esperado")
+
+        # Se a compra for de um Slot Extra
+        if plano_real == "Slot Extra":
+            try:
+                adicionar_slot_extra(telegram_id)
+                await avancar_para_nova_etapa(
+                    update,
+                    context,
+                    "✅ Slot extra adicionado com sucesso!\n\nVocê já pode configurar um novo streamer.",
+                    [[InlineKeyboardButton("🔧 Gerenciar canal", callback_data="abrir_menu_gerenciar_canal")]]
+                )
+                return ConversationHandler.END
+            except Exception as e:
+                logger.error(f"Erro ao adicionar slot extra para {telegram_id}: {e}")
                 await update.message.reply_text(
-                    "❌ Produtos gratuitos só podem ser usados por administradores.",
+                    "❌ Ocorreu um erro ao adicionar seu slot extra. Por favor, contate o suporte.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="abrir_menu_gerenciar_canal")]])
+                )
+                return ConversationHandler.END
+        else: # Se a compra for de um plano de assinatura
+            # Se o método de pagamento é FREE, verifica se o usuário é admin
+            if metodo_pagamento and metodo_pagamento.upper() == "FREE": # Verifica se é um plano "FREE"
+                if not is_usuario_admin(telegram_id):
+                    await update.message.reply_text(
+                        "❌ Produtos gratuitos só podem ser usados por administradores.",
+                        reply_markup=InlineKeyboardMarkup([
+                            [InlineKeyboardButton("🔙 Voltar", callback_data="menu_2")]
+                        ])
+                    )
+                    return PEDIR_EMAIL
+                print(f"[DEBUG] Admin {telegram_id} ativando acesso gratuito com e-mail {email}.") # Log para admin
+            
+            if plano_real != plano_esperado and (not metodo_pagamento or metodo_pagamento.upper() != "FREE"):
+                await update.message.reply_text(
+                    "❌ O plano selecionado não corresponde ao plano que você comprou.\n"
+                    f"Você comprou o plano *{plano_real}*, mas selecionou o *{plano_esperado}*.\n"
+                    "Volte e selecione o plano correto.",
+                    parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🔙 Voltar", callback_data="menu_2")]
+                        [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
                     ])
                 )
                 return PEDIR_EMAIL
-            print(f"[DEBUG] Admin {telegram_id} ativando acesso gratuito com e-mail {email}.") # Log para admin
-        
-        # Remove a verificação estrita: se o plano real for diferente do esperado,
-        # o usuário ainda é ativado com o plano real.
-        if plano_real != plano_esperado and (not metodo_pagamento or metodo_pagamento.upper() != "FREE"):
-            await update.message.reply_text(
-                "❌ O plano selecionado não corresponde ao plano que você comprou.\n"
-                f"Você comprou o plano *{plano_real}*, mas selecionou o *{plano_esperado}*.\n"
-                "Volte e selecione o plano correto.",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
-                ])
-            )
-            return PEDIR_EMAIL
-        
-        # Mensagem informativa se o plano pago for diferente do selecionado
-        if plano_real != plano_esperado:
-            await update.message.reply_text(
-                f"⚠️ Você selecionou o plano *{plano_esperado}*, mas seu pagamento foi para o plano *{plano_real}*.\n"
-                f"Sua assinatura foi ativada para o plano *{plano_real}*.",
-                parse_mode="Markdown"
-            )
-            # Não retorna, continua para ativar o usuário com o plano_real
+            
+            # Mensagem informativa se o plano pago for diferente do selecionado
+            if plano_real != plano_esperado:
+                await update.message.reply_text(
+                    f"⚠️ Você selecionou o plano *{plano_esperado}*, mas seu pagamento foi para o plano *{plano_real}*.\n"
+                    f"Sua assinatura foi ativada para o plano *{plano_real}*.",
+                    parse_mode="Markdown"
+                )
 
-        # Ativa o usuário
-        print(f"[DEBUG] Pagamento aprovado para {email}, ativando usuário {telegram_id}...")
-        try: # Sempre ativa com o plano_real
-            vincular_compra_e_ativar_usuario(telegram_id, email, plano_real, "approved")
-        except Exception as e:
-            await update.message.reply_text(
-                f"❌ Erro ao ativar sua assinatura: {e}\nPor favor, tente novamente ou contate o suporte.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")], [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]])
+            # Ativa o usuário
+            print(f"[DEBUG] Pagamento aprovado para {email}, ativando usuário {telegram_id}...")
+            try: # Sempre ativa com o plano_real
+                vincular_compra_e_ativar_usuario(telegram_id, email, plano_real, "approved")
+            except Exception as e:
+                await update.message.reply_text(
+                    f"❌ Erro ao ativar sua assinatura: {e}\nPor favor, tente novamente ou contate o suporte.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔁 Corrigir e-mail", callback_data="menu_6")], [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_2")]])
+                )
+                return PEDIR_EMAIL
+            
+            # Mensagem de sucesso e continuação
+            await avancar_para_nova_etapa(
+                update,
+                context,
+                f"✅ Pagamento confirmado com sucesso!\n\n"
+                f"Plano assinado: *{plano_real}*.\n"
+                f"Seu acesso foi liberado. Agora vamos configurar seu canal privado.",
+                [[InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]]
             )
-            return PEDIR_EMAIL
-        
-        # Mensagem de sucesso e continuação
-        await avancar_para_nova_etapa(
-            update,
-            context,
-            f"✅ Pagamento confirmado com sucesso!\n\n"
-            f"Plano assinado: *{plano_real}*.\n"
-            f"Seu acesso foi liberado. Agora vamos configurar seu canal privado.",
-            [[InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]]
-        )
-        return ConversationHandler.END
+            return ConversationHandler.END
 
     elif status_compra == "pending":
         # Lógica para pagamento pendente
         print("[DEBUG] Pagamento pendente.")
-        mensagem_id = context.user_data.get("mensagem_pagamento_id")
+        mensagem_id = context.user_data.get("mensagem_pagamento_id") # Usa .get() para não remover a chave
         chat_id = update.effective_chat.id
+        plano_esperado = context.user_data.get("plano_esperado")
         
         botoes = [
-            [InlineKeyboardButton("📎 Acessar link de pagamento", url=LINKS_KIRVANO.get(plano_esperado, ""))],
+            [InlineKeyboardButton("📎 Acessar link de pagamento", url=KIRVANO_LINKS.get(plano_esperado, ""))],
             [InlineKeyboardButton("✅ Já paguei", callback_data="menu_6")],
             [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
         ]

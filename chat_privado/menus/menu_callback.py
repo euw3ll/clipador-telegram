@@ -158,17 +158,18 @@ async def responder_menu_2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = (
         "💸 *PLANOS DO CLIPADOR*\n\n"
         "✅ *Mensal Solo* — R$29,90/mês\n"
-        "• 1 canal monitorado\n"
+        "• 1 streamer monitorado\n"
         "• Troca de streamer 1x/mês\n"
-        "• Máximo 1 slot adicional (R$14,90 fixo)\n\n"
+        "• Máximo 1 slot extra\n\n"
         "🏆 *Mensal Plus* — R$49,90/mês\n"
         "• Até 3 canais monitorados\n"
         "• Ideal pra clippers/agências\n"
-        "• Até 3 slots extras (R$9,90 cada)\n\n"
+        "• Até 3 slots extras\n\n"
         "👑 *Anual Pro* — R$299,00/ano\n"
         "• 3 canais + 1 slot bônus\n"
         "• Economia de 2 meses\n"
-        "• Até 5 slots extras (R$7,90 cada)"
+        "• Até 5 slots extras\n\n"
+        "➕ *Slot Extra:* R$14,90 (pagamento único para qualquer plano)"
     )
 
     botoes = [
@@ -187,17 +188,18 @@ async def responder_menu_3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = (
         "🧾 *PLANOS DO CLIPADOR*\n\n"
         "✅ *Mensal Solo* — R$29,90/mês\n"
-        "• 1 canal monitorado\n"
+        "• 1 streamer monitorado\n"
         "• Troca de streamer 1x/mês\n"
-        "• Máximo 1 slot adicional (R$14,90 fixo)\n\n"
+        "• Máximo 1 slot extra\n\n"
         "🏆 *Mensal Plus* — R$49,90/mês\n"
         "• Até 3 canais monitorados\n"
         "• Ideal pra clippers/agências\n"
-        "• Até 3 slots extras (R$9,90 cada)\n\n"
+        "• Até 3 slots extras\n\n"
         "👑 *Anual Pro* — R$299,00/ano\n"
         "• 3 canais + 1 slot bônus\n"
         "• Economia de 2 meses\n"
-        "• Até 5 slots extras (R$7,90 cada)"
+        "• Até 5 slots extras\n\n"
+        "➕ *Slot Extra:* R$14,90 (pagamento único para qualquer plano)"
     )
 
     botoes = [
@@ -224,7 +226,7 @@ async def responder_menu_4_mensal(update: Update, context: ContextTypes.DEFAULT_
         "💰 R$ 29,90/mês\n"
         "🔹 1 streamer monitorado\n"
         "🔄 Troca de streamer 1x por mês\n"
-        "➕ Máximo 1 slot adicional (R$14,90 fixo)\n"
+        "➕ Máximo 1 slot extra (R$14,90 - pagamento único)\n"
         "📅 Renovação mensal\n\n"
         "Deseja continuar com esse plano?"
     )
@@ -251,7 +253,7 @@ async def responder_menu_4_plus(update: Update, context: ContextTypes.DEFAULT_TY
         "💰 R$ 49,90/mês\n"
         "🔹 Até 3 streamers monitorados\n"
         "📦 Ideal para agências/clippers\n"
-        "➕ Até 3 slots adicionais (R$9,90 cada)\n"
+        "➕ Até 3 slots adicionais (R$14,90 cada - pagamento único)\n"
         "📅 Renovação mensal\n\n"
         "Deseja continuar com esse plano?"
     )
@@ -278,7 +280,7 @@ async def responder_menu_4_anual(update: Update, context: ContextTypes.DEFAULT_T
         "💰 R$ 299,00/ano\n"
         "🔹 3 streamers monitorados + 1 slot bônus\n"
         "🎁 Economia de 2 meses\n"
-        "➕ Até 5 slots adicionais (R$7,90 cada)\n"
+        "➕ Até 5 slots adicionais (R$14,90 cada - pagamento único)\n"
         "📅 Renovação anual\n\n"
         "Deseja continuar com esse plano?"
     )
