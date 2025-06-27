@@ -7,7 +7,7 @@ from core.ambiente import (
 
 
 #IDs dos usuários administradores do bot
-ADMIN_TELEGRAM_IDS = [1527996001]
+ADMIN_TELEGRAM_IDS = [1527996001] # Adicione o ID do novo admin aqui
 
 
 """CONFIGURAÇÕES DO CANAL GRATUITO"""
@@ -18,8 +18,8 @@ INTERVALO_MENSAGEM_HEADER = 5400
 INTERVALO_ATUALIZACAO_STREAMERS = 5400
 
 # 🔄 SWITCHES DE FUNCIONALIDADE
-MODO_MONITORAMENTO_GRATUITO = "AUTOMATICO" # Opções para o canal gratuito: 'AUTOMATICO' (sensibilidade baseada em viewers) ou 'MANUAL' (usa as constantes de `canal_gratuito/core/monitor.py`)
-TIPO_LOG = "DESENVOLVEDOR"  # "PADRAO" ou "DESENVOLVEDOR"
+MODO_MONITORAMENTO_GRATUITO = "MANUAL" # Opções para o canal gratuito: 'AUTOMATICO' (sensibilidade baseada em viewers) ou 'MANUAL' (usa as constantes de `canal_gratuito/core/monitor.py`)
+TIPO_LOG = "PADRAO"  # "PADRAO" ou "DESENVOLVEDOR"
 ATUALIZAR_DESCRICAO = True
 ENVIAR_CLIPES = True
 USAR_VERIFICACAO_AO_VIVO = True

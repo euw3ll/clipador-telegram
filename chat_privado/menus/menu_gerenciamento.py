@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 # Estados para as conversas
 (
     GERENCIANDO_STREAMERS, AGUARDANDO_ADICAO, AGUARDANDO_REMOCAO, # Gerenciamento de Streamers
-    CONFIG_MIN_CLIPS, CONFIG_INTERVALO, CONFIG_FREQUENCIA # Configuração Manual
-) = range(6)
+    CONFIG_MIN_CLIPS, CONFIG_INTERVALO # Configuração Manual
+) = range(5)
 
 async def ver_plano_atual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Exibe os detalhes do plano atual do usuário."""
@@ -208,6 +208,7 @@ async def _construir_menu_streamers(telegram_id: int) -> tuple[str, InlineKeyboa
     last_mod_str = config.get('streamers_ultima_modificacao')
     allow_streamer_modification = True
     modification_info_message = ""
+    add_buy_slot_button = False # Flag para adicionar o botão de compra
 
     if last_mod_str:
         try:
@@ -224,7 +225,8 @@ async def _construir_menu_streamers(telegram_id: int) -> tuple[str, InlineKeyboa
                 modification_info_message = f"\n\n⚠️ Você tem *{hours}h {minutes}m* restantes para alterar a lista de streamers."
             else: # 1 hora se passou, modificações não são mais permitidas para este período
                 allow_streamer_modification = False
-                modification_info_message = "\n\n❌ O período de 1 hora para alterações na lista de streamers expirou. Você poderá alterar novamente na próxima renovação do seu plano."
+                modification_info_message = "\n\n❌ O período para alterar a lista de streamers expirou. Para adicionar um novo streamer, você pode aguardar a renovação do seu plano ou comprar um slot extra."
+                add_buy_slot_button = True
         except ValueError:
             logger.warning(f"Could not parse streamers_ultima_modificacao: {last_mod_str}")
             modification_info_message = "\n\n⚠️ Erro ao verificar o período de modificação. Por favor, contate o suporte."
@@ -250,6 +252,10 @@ async def _construir_menu_streamers(telegram_id: int) -> tuple[str, InlineKeyboa
     keyboard_list = []
     if botoes_linha_1:
         keyboard_list.append(botoes_linha_1)
+    
+    if add_buy_slot_button:
+        keyboard_list.append([InlineKeyboardButton("➕ Comprar Slot Extra", callback_data="comprar_slot_extra")])
+
     keyboard_list.append([InlineKeyboardButton("🔙 Voltar", callback_data="voltar_gerenciamento")])
     
     return texto, InlineKeyboardMarkup(keyboard_list)
@@ -259,6 +265,9 @@ async def iniciar_gerenciamento_streamers(update: Update, context: ContextTypes.
     query = update.callback_query
     await query.answer()
     telegram_id = update.effective_user.id
+
+    # Salva o ID da mensagem do menu para poder editá-la depois
+    context.user_data['gerenciamento_streamer_menu_id'] = query.message.message_id
     
     texto, keyboard = await _construir_menu_streamers(telegram_id)
     
@@ -269,11 +278,26 @@ async def iniciar_gerenciamento_streamers(update: Update, context: ContextTypes.
 async def pedir_novo_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Qual o nome do streamer que você deseja adicionar? (ex: @gaules)")
+
+    # Envia uma nova mensagem para não apagar a lista
+    prompt_msg = await query.message.reply_text("Qual o nome do streamer que você deseja adicionar? (ex: @gaules)")
+    # Salva o ID da mensagem de prompt para apagar depois
+    context.user_data['prompt_msg_id'] = prompt_msg.message_id
+
     return AGUARDANDO_ADICAO
 
 async def adicionar_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     telegram_id = update.effective_user.id
+
+    # Apaga a mensagem do usuário e o prompt do bot
+    await update.message.delete()
+    prompt_msg_id = context.user_data.pop('prompt_msg_id', None)
+    if prompt_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=telegram_id, message_id=prompt_msg_id)
+        except Exception:
+            pass
+
     nome_streamer = update.message.text.strip().replace('@', '')
 
     config = buscar_configuracao_canal(telegram_id)
@@ -283,13 +307,19 @@ async def adicionar_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         twitch = TwitchAPI(twitch_id, twitch_secret) # Agora passa as credenciais do usuário
         if not twitch.get_user_info(nome_streamer):
-            await update.message.reply_text(f"❌ Streamer '{nome_streamer}' não encontrado. Tente novamente.")
-            return AGUARDANDO_ADICAO
+            # Informa o erro e re-exibe o menu principal de gerenciamento
+            await update.message.reply_text(f"❌ Streamer '{nome_streamer}' não encontrado. Tente novamente.", quote=False)
+            texto, keyboard = await _construir_menu_streamers(telegram_id)
+            menu_msg_id = context.user_data.get('gerenciamento_streamer_menu_id')
+            if menu_msg_id:
+                await context.bot.edit_message_text(chat_id=telegram_id, message_id=menu_msg_id, text=texto, reply_markup=keyboard, parse_mode="Markdown")
+            return GERENCIANDO_STREAMERS # Volta para o estado principal
     except Exception as e:
-        await update.message.reply_text("❌ Erro ao validar streamer. Verifique suas credenciais e tente novamente.")
+        await update.message.reply_text("❌ Erro ao validar streamer. Verifique suas credenciais e tente novamente.", quote=False)
         return GERENCIANDO_STREAMERS
 
     streamers = config.get('streamers_monitorados', '').split(',') if config.get('streamers_monitorados') else []
+    streamers = [s for s in streamers if s] # Limpa strings vazias
     streamers.append(nome_streamer)
     atualizar_streamers_monitorados(telegram_id, streamers)
 
@@ -300,22 +330,48 @@ async def adicionar_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             parse_mode="Markdown"
         )
 
+    # Edita a mensagem original do menu com a lista atualizada
+    menu_msg_id = context.user_data.get('gerenciamento_streamer_menu_id')
     texto, keyboard = await _construir_menu_streamers(telegram_id)
-    await update.message.reply_text(text=texto, reply_markup=keyboard, parse_mode="Markdown")
+    if menu_msg_id:
+        await context.bot.edit_message_text(
+            chat_id=telegram_id,
+            message_id=menu_msg_id,
+            text=texto, 
+            reply_markup=keyboard, 
+            parse_mode="Markdown"
+        )
+    
     return GERENCIANDO_STREAMERS
 
 async def pedir_remocao_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Digite o número do streamer que você deseja remover da lista.")
+
+    # Envia uma nova mensagem para não apagar a lista
+    prompt_msg = await query.message.reply_text("Digite o número do streamer que você deseja remover da lista.")
+    # Salva o ID da mensagem de prompt para apagar depois
+    context.user_data['prompt_msg_id'] = prompt_msg.message_id
+    
     return AGUARDANDO_REMOCAO
 
 async def remover_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     telegram_id = update.effective_user.id
+
+    # Apaga a mensagem do usuário e o prompt do bot
+    await update.message.delete()
+    prompt_msg_id = context.user_data.pop('prompt_msg_id', None)
+    if prompt_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=telegram_id, message_id=prompt_msg_id)
+        except Exception:
+            pass
+            
     try:
         indice = int(update.message.text.strip()) - 1
         config = buscar_configuracao_canal(telegram_id)
         streamers = config.get('streamers_monitorados', '').split(',')
+        streamers = [s for s in streamers if s] # Limpa strings vazias
 
         if 0 <= indice < len(streamers):
             removido = streamers.pop(indice)
@@ -328,18 +384,37 @@ async def remover_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     parse_mode="Markdown"
                 )
             
+            # Edita a mensagem original do menu com a lista atualizada
+            menu_msg_id = context.user_data.get('gerenciamento_streamer_menu_id')
             texto, keyboard = await _construir_menu_streamers(telegram_id)
-            await update.message.reply_text(text=texto, reply_markup=keyboard, parse_mode="Markdown")
+            if menu_msg_id:
+                await context.bot.edit_message_text(
+                    chat_id=telegram_id,
+                    message_id=menu_msg_id,
+                    text=texto, 
+                    reply_markup=keyboard, 
+                    parse_mode="Markdown"
+                )
             return GERENCIANDO_STREAMERS
         else:
-            await update.message.reply_text("❌ Número inválido. Tente novamente.")
+            await update.message.reply_text("❌ Número inválido. Tente novamente.", quote=False)
             return AGUARDANDO_REMOCAO
     except (ValueError, IndexError):
-        await update.message.reply_text("❌ Entrada inválida. Por favor, envie apenas o número.")
+        await update.message.reply_text("❌ Entrada inválida. Por favor, envie apenas o número.", quote=False)
         return AGUARDANDO_REMOCAO
 
 async def encerrar_gerenciamento_streamers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Volta para o menu de gerenciamento principal."""
+    """Volta para o menu de gerenciamento principal e limpa mensagens pendentes."""
+    query = update.callback_query
+    
+    # Limpa o prompt se existir
+    prompt_msg_id = context.user_data.pop('prompt_msg_id', None)
+    if prompt_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=query.message.chat_id, message_id=prompt_msg_id)
+        except Exception:
+            pass
+            
     await abrir_menu_gerenciar_canal(update, context)
     return ConversationHandler.END
 
@@ -403,7 +478,7 @@ async def receber_min_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     texto = (
         f"✅ Mínimo de clipes definido para: *{valor}*\n\n"
         f"⚙️ *Configuração Manual: Intervalo entre Clipes*\n\n"
-        f"Defina o tempo máximo em segundos entre um clipe e outro para que eles sejam agrupados no mesmo evento.\n\n"
+        f"É a 'janela de tempo' de um evento viral. Se vários clipes são criados dentro desta janela (ex: 60 segundos), o bot entende que todos fazem parte do mesmo grande momento. Isso ajuda a separar um acontecimento de outro que ocorre minutos depois.\n\n"
         f"🔹 *Valor atual:* `{intervalo}`\n"
         f"💡 *Recomendado:* 60\n"
         f"⚠️ *Limite:* Mínimo 10 segundos.\n\n"
@@ -414,8 +489,9 @@ async def receber_min_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     await update.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
     return CONFIG_INTERVALO
 
-async def receber_intervalo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Recebe e valida o intervalo em segundos."""
+async def receber_intervalo_e_salvar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Recebe o intervalo, salva todas as configurações manuais e encerra a conversa."""
+    telegram_id = update.effective_user.id
     try:
         valor = int(update.message.text)
         if valor < 10:
@@ -425,50 +501,18 @@ async def receber_intervalo(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text("❌ Por favor, envie apenas um número. Tente novamente.")
         return CONFIG_INTERVALO
         
-    context.user_data['manual_interval_sec'] = valor
-    
-    config = buscar_configuracao_canal(update.effective_user.id)
-    frequencia = config.get('manual_freq_min', 'Não definido')
-
-    texto = (
-        f"✅ Intervalo definido para: *{valor} segundos*\n\n"
-        f"⚙️ *Configuração Manual: Frequência de Monitoramento*\n\n"
-        f"Defina de quantos em quantos *segundos* o bot deve verificar por novos clipes. Um valor menor é mais rápido.\n\n"
-        f"🔹 *Valor atual:* `{frequencia}`\n"
-        f"💡 *Recomendado:* 45 segundos\n"
-        f"⚠️ *Limite:* Mínimo 30 segundos.\n\n"
-        "Por favor, envie o novo valor."
-    )
-    botoes = [[InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_config_manual")]]
-    
-    await update.message.reply_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode="Markdown")
-    return CONFIG_FREQUENCIA
-
-async def receber_frequencia_e_salvar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Recebe a frequência, salva todas as configurações manuais e encerra a conversa."""
-    telegram_id = update.effective_user.id
-    try:
-        valor = int(update.message.text)
-        if valor < 30:
-            await update.message.reply_text("❌ Valor inválido. A frequência deve ser de no mínimo 30 segundos. Tente novamente.")
-            return CONFIG_FREQUENCIA
-    except ValueError:
-        await update.message.reply_text("❌ Por favor, envie apenas um número. Tente novamente.")
-        return CONFIG_FREQUENCIA
-        
     min_clips = context.user_data.pop('manual_min_clips')
-    interval_sec = context.user_data.pop('manual_interval_sec')
-    freq_sec = valor
+    interval_sec = valor
     
-    atualizar_configuracao_manual(telegram_id=telegram_id, min_clips=min_clips, interval_sec=interval_sec, freq_sec=freq_sec)
+    atualizar_configuracao_manual(telegram_id=telegram_id, min_clips=min_clips, interval_sec=interval_sec)
     atualizar_modo_monitoramento(telegram_id, "MANUAL")
     
     texto_sucesso = (
         f"✅ *Configuração Manual Salva!*\n\n"
+        f"A frequência de monitoramento é padronizada em *60 segundos* para garantir a estabilidade para todos os usuários.\n\n"
         f"Seu modo de monitoramento foi alterado para `MANUAL` com os seguintes parâmetros:\n"
         f"- Mínimo de Clipes: `{min_clips}`\n"
-        f"- Intervalo: `{interval_sec}` segundos\n"
-        f"- Frequência: `{freq_sec}` segundos"
+        f"- Intervalo entre Clipes: `{interval_sec}` segundos"
     )
     botoes = [[InlineKeyboardButton("🔙 Voltar ao Gerenciamento", callback_data="abrir_menu_gerenciar_canal")]]
     
@@ -495,8 +539,7 @@ def configurar_manual_conversa():
         entry_points=[CallbackQueryHandler(iniciar_configuracao_manual, pattern="^configurar_manual_iniciar$")],
         states={
             CONFIG_MIN_CLIPS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_min_clips)],
-            CONFIG_INTERVALO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_intervalo)],
-            CONFIG_FREQUENCIA: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_frequencia_e_salvar)],
+            CONFIG_INTERVALO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_intervalo_e_salvar)],
         },
         fallbacks=[CallbackQueryHandler(cancelar_config_manual, pattern="^cancelar_config_manual$")],
         map_to_parent={

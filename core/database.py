@@ -46,8 +46,7 @@ def criar_tabelas():
             streamers_ultima_modificacao TIMESTAMP,
             -- Configurações para o modo manual
             manual_min_clips INTEGER,
-            manual_interval_sec INTEGER,
-            manual_freq_sec INTEGER
+            manual_interval_sec INTEGER
         )
     """)
 
@@ -323,7 +322,6 @@ def migrar_tabelas():
         colunas_a_adicionar = {
             "manual_min_clips": "INTEGER",
             "manual_interval_sec": "INTEGER",
-            "manual_freq_sec": "INTEGER"
         }
 
         for nome_coluna, tipo_coluna in colunas_a_adicionar.items():
@@ -542,7 +540,7 @@ def adicionar_slot_extra(telegram_id: int):
     conn.close()
     logger.info(f"Slot extra adicionado para o usuário {telegram_id}.")
 
-def atualizar_configuracao_manual(telegram_id: int, min_clips: int = None, interval_sec: int = None, freq_sec: int = None):
+def atualizar_configuracao_manual(telegram_id: int, min_clips: int = None, interval_sec: int = None):
     """Atualiza os parâmetros de configuração manual de um usuário."""
     conn = conectar()
     cursor = conn.cursor()
@@ -556,9 +554,6 @@ def atualizar_configuracao_manual(telegram_id: int, min_clips: int = None, inter
     if interval_sec is not None:
         updates.append("manual_interval_sec = ?")
         params.append(interval_sec)
-    if freq_sec is not None:
-        updates.append("manual_freq_sec = ?")
-        params.append(freq_sec)
 
     if not updates:
         conn.close()

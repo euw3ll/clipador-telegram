@@ -90,7 +90,11 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
             stream = twitch.get_stream_info(streamer_id)
             viewers = stream["viewer_count"] if stream else 0
             
-            if modo_monitoramento == "AUTOMATICO":
+            if modo_monitoramento == "MANUAL":
+                # Usa as configurações manuais salvas no banco de dados
+                minimo_clipes = config_cliente.get('manual_min_clips', 3) # Padrão de 3 se não definido
+                intervalo_agrupamento = config_cliente.get('manual_interval_sec', 60) # Padrão de 60s se não definido
+            elif modo_monitoramento == "AUTOMATICO":
                 # Para o modo automático, o min_clipes é dinâmico baseado nos viewers
                 minimo_clipes = minimo_clipes_por_viewers(viewers)
                 intervalo_agrupamento = MODOS_MONITORAMENTO["AUTOMATICO"]["intervalo_segundos"]

@@ -1,6 +1,6 @@
 {
-  "ultima_execucao": "2025-06-27T22:27:25.734722+00:00",
-  "ultimo_envio_promocional": 1751063163.7668009,
+  "ultima_execucao": "2025-06-27T23:22:08.589135+00:00",
+  "ultimo_envio_promocional": 1751065021.322413,
   "ultimo_envio_header": 0,
   "ultimo_envio_atualizacao_streamers": 1751063237.41301,
   "grupos_enviados": [
@@ -2927,7 +2927,35 @@
     {
       "inicio": "2025-06-27T22:25:53+00:00",
       "fim": "2025-06-27T22:26:35+00:00"
+    },
+    {
+      "inicio": "2025-06-27T22:34:35+00:00",
+      "fim": "2025-06-27T22:35:12+00:00"
+    },
+    {
+      "inicio": "2025-06-27T22:35:51+00:00",
+      "fim": "2025-06-27T22:36:35+00:00"
+    },
+    {
+      "inicio": "2025-06-27T22:40:20+00:00",
+      "fim": "2025-06-27T22:42:48+00:00"
+    },
+    {
+      "inicio": "2025-06-27T22:48:46+00:00",
+      "fim": "2025-06-27T22:51:38+00:00"
+    },
+    {
+      "inicio": "2025-06-27T22:44:25+00:00",
+      "fim": "2025-06-27T22:47:40+00:00"
+    },
+    {
+      "inicio": "2025-06-27T22:53:38+00:00",
+      "fim": "2025-06-27T22:56:35+00:00"
+    },
+    {
+      "inicio": "2025-06-27T22:51:41+00:00",
+      "fim": "2025-06-27T22:52:41+00:00"
     }
   ],
-  "ultima_descricao": "O CLIPADOR ESTÁ ONLINE 😎\n👀 Monitorando os 5 streamers 🇧🇷 mais assistidos agora 👇\n• @cellbit\n• @baiano\n• @alanzoka\n• @fontinnelerj\n• @ltasul\n🔥 Critério: Automático (sensibilidade atual: 3 clipes)"
+  "ultima_descricao": "O CLIPADOR ESTÁ ONLINE 😎\n👀 Monitorando os 5 streamers 🇧🇷 mais assistidos agora 👇\n• @cellbit\n• @baiano\n• @luquet4\n• @alanzoka\n• @poderosobagual\n🔥 Critério: Grupo de 5 clipes em 200s"
 }
