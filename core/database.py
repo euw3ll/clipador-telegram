@@ -665,13 +665,18 @@ def registrar_grupo_enviado(telegram_id: int, streamer_id: str, grupo_inicio: 'd
     conn.close()
 
 def verificar_grupo_ja_enviado(telegram_id: int, streamer_id: str, grupo_inicio: 'datetime', grupo_fim: 'datetime') -> bool:
-    """Verifica se um grupo de clipes já foi enviado para um usuário."""
+    """
+    Verifica se um grupo de clipes já foi enviado para um usuário,
+    considerando sobreposição de tempo.
+    """
     conn = conectar()
     cursor = conn.cursor()
+    # Verifica se o novo grupo [grupo_inicio, grupo_fim] se sobrepõe a algum grupo já enviado
+    # Condição de sobreposição: (start_existente <= end_novo) AND (start_novo <= end_existente)
     cursor.execute("""
         SELECT 1 FROM historico_envios
         WHERE telegram_id = ? AND streamer_id = ? AND grupo_inicio = ? AND grupo_fim = ?
-    """, (telegram_id, streamer_id, grupo_inicio, grupo_fim))
+    """, (telegram_id, streamer_id, grupo_fim, grupo_inicio))
     resultado = cursor.fetchone()
     conn.close()
     return resultado is not None

@@ -14,8 +14,10 @@ from .core.monitor import ( # Importando as funções e constantes necessárias
     get_time_minutes_ago,
     minimo_clipes_por_viewers,
     eh_clipe_ao_vivo_real,
-    INTERVALO_SEGUNDOS, # Mantido para o critério do canal gratuito
+    INTERVALO_SEGUNDOS, # Usado no modo MANUAL
     INTERVALO_MONITORAMENTO,
+    MINIMO_CLIPES, # Usado no modo MANUAL
+    MODOS_MONITORAMENTO, # Usado para o modo AUTOMATICO
 )
 from configuracoes import (
     TELEGRAM_CHAT_ID,
@@ -25,8 +27,7 @@ from configuracoes import (
     TIPO_LOG,
     ATUALIZAR_DESCRICAO,
     ENVIAR_CLIPES,
-    USAR_VERIFICACAO_AO_VIVO,
-    MODO_MONITORAMENTO,
+    USAR_VERIFICACAO_AO_VIVO, MODO_MONITORAMENTO_GRATUITO,
 )
 
 # =================== CONFIGURAÇÕES DO main.py =================== #
@@ -104,13 +105,18 @@ async def main(application: "Application"):
                 if TIPO_LOG == "DESENVOLVEDOR":
                     print(f"🔎 {len(clipes_novos)} clipes novos encontrados.")
 
-                stream = twitch.get_stream_info(user_id)
-                viewers = stream["viewer_count"] if stream else 0
-                minimo_clipes = minimo_clipes_por_viewers(viewers)
+                if MODO_MONITORAMENTO_GRATUITO == 'AUTOMATICO':
+                    stream = twitch.get_stream_info(user_id)
+                    viewers = stream["viewer_count"] if stream else 0
+                    minimo_clipes = minimo_clipes_por_viewers(viewers)
+                    intervalo_agrupamento = MODOS_MONITORAMENTO["AUTOMATICO"]["intervalo_segundos"]
+                else:  # MODO_MONITORAMENTO_GRATUITO == 'MANUAL'
+                    minimo_clipes = MINIMO_CLIPES
+                    intervalo_agrupamento = INTERVALO_SEGUNDOS
+
                 minimo_clipes_global = max(minimo_clipes_global, minimo_clipes)
 
-                # A função agrupar_clipes_por_proximidade agora retorna apenas os grupos que já são "virais"
-                virais = agrupar_clipes_por_proximidade(clipes_novos, INTERVALO_SEGUNDOS, minimo_clipes)
+                virais = agrupar_clipes_por_proximidade(clipes_novos, intervalo_agrupamento, minimo_clipes)
 
                 for grupo in virais:
                     inicio = grupo["inicio"]
@@ -170,7 +176,12 @@ async def main(application: "Application"):
                         f"👀 Monitorando os {QUANTIDADE_STREAMERS} streamers 🇧🇷 mais assistidos agora 👇"
                     )
                     lista = "\n" + "\n".join([f"• @{login}" for login in logins_monitorados]) if logins_monitorados else ""
-                    criterio = f"\n🔥 Critério: Grupo de {minimo_clipes_global} clipes em {INTERVALO_SEGUNDOS}s"
+
+                    if MODO_MONITORAMENTO_GRATUITO == 'MANUAL':
+                        criterio = f"\n🔥 Critério: Grupo de {MINIMO_CLIPES} clipes em {INTERVALO_SEGUNDOS}s"
+                    else: # AUTOMATICO
+                        criterio = f"\n🔥 Critério: Automático (sensibilidade atual: {minimo_clipes_global} clipes)"
+
                     descricao_nova = f"{cabecalho}{lista}{criterio}"
 
                     if len(descricao_nova) > 255:
@@ -207,8 +218,12 @@ async def main(application: "Application"):
                 else:
                     print(f"✅ {total_enviados} grupo(s) enviado(s): {total_ao_vivo} AO VIVO / {total_vod} VOD")
                 print("-" * 50)
-                print(f"🧠 MODO DE MONITORAMENTO: {MODO_MONITORAMENTO}")
-                print(f"🔥 CRITÉRIO: Grupo de {minimo_clipes_global} clipes em {INTERVALO_SEGUNDOS}s")
+                print(f"🧠 MODO DE MONITORAMENTO: {MODO_MONITORAMENTO_GRATUITO}")
+                if MODO_MONITORAMENTO_GRATUITO == 'MANUAL':
+                    print(f"🔥 CRITÉRIO: Grupo de {MINIMO_CLIPES} clipes em {INTERVALO_SEGUNDOS}s")
+                else:
+                    # No modo automático, o critério muda a cada streamer, então mostramos o mais exigente do ciclo
+                    print(f"🔥 CRITÉRIO: Automático (sensibilidade atual: {minimo_clipes_global} clipes)")
                 print(f"⏰ ÚLTIMA VERIFICAÇÃO: {datetime.now().strftime('%H:%M:%S')}")
             elif TIPO_LOG == "DESENVOLVEDOR":
                 print(f"📼 Grupos enviados: {total_enviados}")

@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from configuracoes import MODO_MONITORAMENTO
 
 # Modos antigos (mantidos apenas para uso futuro nos canais privados)
 MODOS_MONITORAMENTO = {
