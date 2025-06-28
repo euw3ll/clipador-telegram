@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
-from configuracoes import KIRVANO_LINKS
+from configuracoes import KIRVANO_LINKS, PLANOS_PRECOS
 from core.database import (
     buscar_configuracao_canal,
     obter_plano_usuario,
@@ -112,10 +112,11 @@ async def comprar_slot_extra(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     context.user_data["plano_esperado"] = "Slot Extra"
 
+    preco_slot = PLANOS_PRECOS.get("Slot Extra", 0.0)
     texto = (
         "➕ *Comprar Slot Extra*\n\n"
         "Adicione um novo streamer para monitorar em seu canal!\n\n"
-        "💰 *Valor:* R$14,90\n"
+        f"💰 *Valor:* R${preco_slot:.2f}\n"
         "💳 *Pagamento:* Único (não é uma assinatura)\n\n"
         "Clique no botão abaixo para ir para a página de pagamento. "
         "Após a confirmação, seu novo slot será liberado automaticamente."
@@ -130,7 +131,7 @@ async def comprar_slot_extra(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     botoes = [
-        [InlineKeyboardButton("💳 Pagar R$14,90", url=link_pagamento)],
+        [InlineKeyboardButton(f"💳 Pagar R${preco_slot:.2f}", url=link_pagamento)],
         [InlineKeyboardButton("✅ Já paguei", callback_data="menu_6")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="abrir_menu_gerenciar_canal")]
     ]
@@ -448,10 +449,10 @@ async def iniciar_configuracao_manual(update: Update, context: ContextTypes.DEFA
     
     texto = (
         f"⚙️ *Configuração Manual: Mínimo de Clipes*\n\n"
-        f"Defina quantos clipes diferentes do mesmo momento precisam ser criados para que o bot considere o evento como viral.\n\n"
+        f"Defina quantos clipes precisam ser criados no mesmo momento para que o bot considere o evento como viral.\n\n"
         f"🔹 *Valor atual:* `{min_clips}`\n"
-        f"💡 *Recomendado:* 3\n"
-        f"⚠️ *Limite:* Mínimo 2.\n\n"
+        f"💡 *Recomendado:* 3 clipes.\n"
+        f"⚠️ *Limite:* Mínimo 2 clipes.\n\n"
         "Por favor, envie o novo valor."
     )
     botoes = [[InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_config_manual")]]
@@ -478,9 +479,10 @@ async def receber_min_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     texto = (
         f"✅ Mínimo de clipes definido para: *{valor}*\n\n"
         f"⚙️ *Configuração Manual: Intervalo entre Clipes*\n\n"
-        f"É a 'janela de tempo' de um evento viral. Se vários clipes são criados dentro desta janela (ex: 60 segundos), o bot entende que todos fazem parte do mesmo grande momento. Isso ajuda a separar um acontecimento de outro que ocorre minutos depois.\n\n"
+        f"Defina qual a diferença de tempo os clipes precisam ter para se considerar um grupo viral.\n\n"
+        f"_Explicação: Imagine a 'janela de tempo' de um evento viral. Se vários clipes são criados dentro desta janela (ex: 60 segundos), o bot entende que todos fazem parte do mesmo grande momento._\n\n"
         f"🔹 *Valor atual:* `{intervalo}`\n"
-        f"💡 *Recomendado:* 60\n"
+        f"💡 *Recomendado:* 60 segundos.\n"
         f"⚠️ *Limite:* Mínimo 10 segundos.\n\n"
         "Por favor, envie o novo valor."
     )

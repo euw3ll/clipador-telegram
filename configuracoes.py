@@ -36,3 +36,11 @@ KIRVANO_LINKS = {
     "Anual Pro": "https://pay.kirvano.com/09287018-c006-4c0e-87c7-08a6e4464e79",
     "Slot Extra": "COLE_SEU_LINK_DE_PAGAMENTO_DO_SLOT_EXTRA_AQUI"
 }
+
+# Preços dos planos e produtos
+PLANOS_PRECOS = {
+    "Mensal Solo": 19.90,
+    "Mensal Plus": 39.90,
+    "Anual Pro": 199.00,
+    "Slot Extra": 9.90
+}

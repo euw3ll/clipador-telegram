@@ -76,6 +76,10 @@ def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_cli
         slots_iniciais = 3
     elif plano == "Anual Pro":
         slots_iniciais = 4  # 3 do plano + 1 de bônus
+    elif plano == "PARCEIRO":
+        slots_iniciais = 5  # Plano para parceiros
+    elif plano == "SUPER":
+        slots_iniciais = 999 # Plano de admin sem limites
 
     # Verifica se já existe uma configuração para este usuário
     cursor.execute("SELECT * FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
@@ -527,18 +531,46 @@ def marcar_configuracao_completa(telegram_id, status: bool):
     conn.commit()
     conn.close()
 
-def adicionar_slot_extra(telegram_id: int):
-    """Adiciona um slot extra para o usuário, incrementando o contador."""
+def adicionar_slot_extra(telegram_id: int, quantidade: int = 1):
+    """Adiciona um ou mais slots extras para o usuário, incrementando o contador."""
     conn = conectar()
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE configuracoes_canal
-        SET slots_ativos = slots_ativos + 1
+        SET slots_ativos = slots_ativos + ?
         WHERE telegram_id = ?
-    """, (telegram_id,))
+    """, (quantidade, telegram_id))
     conn.commit()
     conn.close()
-    logger.info(f"Slot extra adicionado para o usuário {telegram_id}.")
+    logger.info(f"{quantidade} slot(s) extra(s) adicionado(s) para o usuário {telegram_id}.")
+
+def remover_slots_extras(telegram_id: int):
+    """Reseta os slots de um usuário para o valor base do seu plano."""
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # 1. Descobrir o plano do usuário para saber o valor base de slots
+    plano = obter_plano_usuario(telegram_id)
+    slots_base = 1
+    if plano == "Mensal Plus":
+        slots_base = 3
+    elif plano == "Anual Pro":
+        slots_base = 4  # 3 do plano + 1 de bônus
+    elif plano == "PARCEIRO":
+        slots_base = 5
+    elif plano == "SUPER":
+        slots_base = 999
+
+    # 2. Atualizar a tabela de configurações com o valor base
+    cursor.execute("UPDATE configuracoes_canal SET slots_ativos = ? WHERE telegram_id = ?", (slots_base, telegram_id))
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        raise ValueError(f"Usuário {telegram_id} não possui um canal configurado para remover slots.")
+
+    conn.commit()
+    conn.close()
+    logger.info(f"Slots extras removidos para o usuário {telegram_id}. Slots resetados para {slots_base}.")
 
 def atualizar_configuracao_manual(telegram_id: int, min_clips: int = None, interval_sec: int = None):
     """Atualiza os parâmetros de configuração manual de um usuário."""
@@ -748,11 +780,13 @@ def verificar_grupo_ja_enviado(telegram_id: int, streamer_id: str, grupo_inicio:
     """
     conn = conectar()
     cursor = conn.cursor()
-    # Verifica se o novo grupo [grupo_inicio, grupo_fim] se sobrepõe a algum grupo já enviado
-    # Condição de sobreposição: (start_existente <= end_novo) AND (start_novo <= end_existente)
+    # CORREÇÃO: A consulta anterior verificava uma correspondência exata e com parâmetros trocados.
+    # A nova consulta implementa a lógica correta de sobreposição de tempo para evitar duplicatas.
+    # Condição de sobreposição: (start_existente <= end_novo) E (start_novo <= end_existente)
     cursor.execute("""
         SELECT 1 FROM historico_envios
-        WHERE telegram_id = ? AND streamer_id = ? AND grupo_inicio = ? AND grupo_fim = ?
+        WHERE telegram_id = ? AND streamer_id = ? AND grupo_inicio <= ? AND ? <= grupo_fim
+        LIMIT 1
     """, (telegram_id, streamer_id, grupo_fim, grupo_inicio))
     resultado = cursor.fetchone()
     conn.close()
@@ -847,6 +881,8 @@ def conceder_plano_usuario(telegram_id: int, plano: str, dias: int):
     slots_base_novo = 1
     if plano == "Mensal Plus": slots_base_novo = 3
     elif plano == "Anual Pro": slots_base_novo = 4
+    elif plano == "PARCEIRO": slots_base_novo = 5
+    elif plano == "SUPER": slots_base_novo = 999
     
     cursor.execute("SELECT slots_ativos FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
     config_result = cursor.fetchone()
@@ -854,8 +890,14 @@ def conceder_plano_usuario(telegram_id: int, plano: str, dias: int):
     if config_result:
         slots_atuais = config_result[0]
         slots_base_antigo = 1
-        if plano_antigo == "Mensal Plus": slots_base_antigo = 3
-        elif plano_antigo == "Anual Pro": slots_base_antigo = 4
+        if plano_antigo == "Mensal Plus":
+            slots_base_antigo = 3
+        elif plano_antigo == "Anual Pro":
+            slots_base_antigo = 4
+        elif plano_antigo == "PARCEIRO":
+            slots_base_antigo = 5
+        elif plano_antigo == "SUPER":
+            slots_base_antigo = 999
         slots_extras_comprados = max(0, slots_atuais - slots_base_antigo)
         novos_slots_totais = slots_base_novo + slots_extras_comprados
         cursor.execute("UPDATE configuracoes_canal SET slots_ativos = ? WHERE telegram_id = ?", (novos_slots_totais, telegram_id))

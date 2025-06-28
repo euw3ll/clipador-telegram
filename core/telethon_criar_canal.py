@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from telethon import TelegramClient
-from telethon.tl.functions.channels import CreateChannelRequest, EditPhotoRequest, InviteToChannelRequest, EditAdminRequest, DeleteChannelRequest, GetFullChannelRequest
+from telethon.tl.functions.channels import CreateChannelRequest, EditPhotoRequest, InviteToChannelRequest, EditAdminRequest, DeleteChannelRequest, GetFullChannelRequest, EditBannedRequest
 from telethon.tl.functions.messages import ExportChatInviteRequest # Import ChatAdminRights
 from telethon.tl.types import InputChatUploadedPhoto, ChatBannedRights, User, ChatAdminRights # Import User here
 from telethon.errors import ChannelPrivateError, FloodWaitError, UserBotError, UserNotMutualContactError, UserBlockedError, UserPrivacyRestrictedError, PeerFloodError # Import specific errors
@@ -108,6 +108,42 @@ async def criar_canal_telegram(nome_usuario: str, telegram_id: int, nome_exibica
         id_canal_bot_api = int(f"-100{canal_entidade.id}")
         logger.info(f"✅ Canal criado: {canal_entidade.title} | ID Base: {canal_entidade.id} | ID para Bot API: {id_canal_bot_api}")
         return id_canal_bot_api, link_convite.link
+
+async def adicionar_usuario_ao_canal(id_canal: int, id_usuario_alvo: int):
+    """Adiciona um usuário a um canal específico."""
+    async with TelegramClient(SESSION_NAME, API_ID, API_HASH) as client:
+        try:
+            logger.info(f"Telethon: Adicionando usuário {id_usuario_alvo} ao canal {id_canal}...")
+            await client(InviteToChannelRequest(
+                channel=id_canal,
+                users=[id_usuario_alvo]
+            ))
+            logger.info(f"✅ Usuário {id_usuario_alvo} adicionado ao canal {id_canal}.")
+            return True, "Usuário adicionado com sucesso."
+        except (UserPrivacyRestrictedError, UserNotMutualContactError):
+            logger.warning(f"Não foi possível adicionar {id_usuario_alvo} ao canal {id_canal} devido às configurações de privacidade do usuário.")
+            return False, "Não foi possível adicionar o usuário devido às suas configurações de privacidade."
+        except Exception as e:
+            logger.error(f"Erro inesperado ao adicionar usuário {id_usuario_alvo} ao canal {id_canal}: {e}", exc_info=True)
+            return False, f"Erro inesperado: {e}"
+
+
+async def remover_usuario_do_canal(id_canal: int, id_usuario_alvo: int):
+    """Remove (bane/kicka) um usuário de um canal específico."""
+    async with TelegramClient(SESSION_NAME, API_ID, API_HASH) as client:
+        try:
+            logger.info(f"Telethon: Removendo usuário {id_usuario_alvo} do canal {id_canal}...")
+            # Para remover, "banimos" o usuário com o direito de ver mensagens revogado.
+            await client(EditBannedRequest(
+                channel=id_canal,
+                participant=id_usuario_alvo,
+                banned_rights=ChatBannedRights(until_date=None, view_messages=True)
+            ))
+            logger.info(f"✅ Usuário {id_usuario_alvo} removido do canal {id_canal}.")
+            return True, "Usuário removido com sucesso."
+        except Exception as e:
+            logger.error(f"Erro inesperado ao remover usuário {id_usuario_alvo} do canal {id_canal}: {e}", exc_info=True)
+            return False, f"Erro inesperado: {e}"
 
 async def deletar_canal_telegram(id_canal: int):
     """Deleta um canal do Telegram usando o Telethon."""

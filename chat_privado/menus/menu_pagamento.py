@@ -45,18 +45,15 @@ from core.database import (
 )
 from io import BytesIO
 import chat_privado.menus.menu_inicial as menu_inicial # Importa o módulo inteiro
-from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao
-from configuracoes import GATEWAY_PAGAMENTO, KIRVANO_LINKS
+from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao # Usado apenas se o gateway for Mercado Pago
+from configuracoes import GATEWAY_PAGAMENTO, KIRVANO_LINKS, PLANOS_PRECOS
 import base64
 
 PEDIR_EMAIL = 1
 
 def obter_valor_plano(plano: str) -> float:
-    return {
-        "Mensal Solo": 29.90,
-        "Mensal Plus": 49.90,
-        "Anual Pro": 299.00
-    }.get(plano, 0.0)
+    """Busca o valor do plano no arquivo de configurações."""
+    return PLANOS_PRECOS.get(plano, 0.0)
 
 # MENU 5: Mostrar opções de pagamento por plano
 async def responder_menu_5_mensal(update: Update, context: ContextTypes.DEFAULT_TYPE):

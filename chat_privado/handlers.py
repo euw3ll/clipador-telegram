@@ -35,8 +35,11 @@ from .admin_commands import (
     create_channel_command,
     delete_channel_command,
     user_info_command,
-    grant_plan_command,
+    set_plan_command,
     add_slot_command,
+    remove_slots_command,
+    manage_channel_members_command,
+    set_streamers_command,
     broadcast_command,
     stats_command,
     channel_stats_command,
@@ -60,8 +63,11 @@ def registrar_handlers(app: Application):
     app.add_handler(CommandHandler("createchannel", create_channel_command))
     app.add_handler(CommandHandler("delchannel", delete_channel_command))
     app.add_handler(CommandHandler("userinfo", user_info_command))
-    app.add_handler(CommandHandler("grantplan", grant_plan_command))
+    app.add_handler(CommandHandler("setplan", set_plan_command))
     app.add_handler(CommandHandler("addslot", add_slot_command))
+    app.add_handler(CommandHandler("removeslots", remove_slots_command))
+    app.add_handler(CommandHandler("channelmembers", manage_channel_members_command))
+    app.add_handler(CommandHandler("setstreamers", set_streamers_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("channelstats", channel_stats_command))

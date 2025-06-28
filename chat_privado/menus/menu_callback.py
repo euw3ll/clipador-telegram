@@ -6,6 +6,7 @@ from core.pagamento import consultar_pagamento
 from chat_privado.menus.menu_configurar_canal import menu_configurar_canal, responder_menu_7_configurar
 from core.database import atualizar_telegram_id_simples
 from chat_privado.usuarios import get_nivel_usuario # Importar get_nivel_usuario
+from configuracoes import PLANOS_PRECOS
 from core.database import buscar_configuracao_canal
 
 from telegram.error import BadRequest
@@ -156,20 +157,20 @@ async def responder_menu_2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     texto = (
-        "💸 *PLANOS DO CLIPADOR*\n\n"
-        "✅ *Mensal Solo* — R$29,90/mês\n"
+        f"💸 *PLANOS DO CLIPADOR*\n\n"
+        f"✅ *Mensal Solo* — R${PLANOS_PRECOS.get('Mensal Solo', 0.0):.2f}/mês\n"
         "• 1 streamer monitorado\n"
         "• Troca de streamer 1x/mês\n"
         "• Máximo 1 slot extra\n\n"
-        "🏆 *Mensal Plus* — R$49,90/mês\n"
+        f"🏆 *Mensal Plus* — R${PLANOS_PRECOS.get('Mensal Plus', 0.0):.2f}/mês\n"
         "• Até 3 canais monitorados\n"
         "• Ideal pra clippers/agências\n"
         "• Até 3 slots extras\n\n"
-        "👑 *Anual Pro* — R$299,00/ano\n"
+        f"👑 *Anual Pro* — R${PLANOS_PRECOS.get('Anual Pro', 0.0):.2f}/ano\n"
         "• 3 canais + 1 slot bônus\n"
         "• Economia de 2 meses\n"
         "• Até 5 slots extras\n\n"
-        "➕ *Slot Extra:* R$14,90 (pagamento único para qualquer plano)"
+        f"➕ *Slot Extra:* R${PLANOS_PRECOS.get('Slot Extra', 0.0):.2f} (pagamento único para qualquer plano)"
     )
 
     botoes = [
@@ -186,20 +187,20 @@ async def responder_menu_3(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     texto = (
-        "🧾 *PLANOS DO CLIPADOR*\n\n"
-        "✅ *Mensal Solo* — R$29,90/mês\n"
+        f"🧾 *PLANOS DO CLIPADOR*\n\n"
+        f"✅ *Mensal Solo* — R${PLANOS_PRECOS.get('Mensal Solo', 0.0):.2f}/mês\n"
         "• 1 streamer monitorado\n"
         "• Troca de streamer 1x/mês\n"
         "• Máximo 1 slot extra\n\n"
-        "🏆 *Mensal Plus* — R$49,90/mês\n"
+        f"🏆 *Mensal Plus* — R${PLANOS_PRECOS.get('Mensal Plus', 0.0):.2f}/mês\n"
         "• Até 3 canais monitorados\n"
         "• Ideal pra clippers/agências\n"
         "• Até 3 slots extras\n\n"
-        "👑 *Anual Pro* — R$299,00/ano\n"
+        f"👑 *Anual Pro* — R${PLANOS_PRECOS.get('Anual Pro', 0.0):.2f}/ano\n"
         "• 3 canais + 1 slot bônus\n"
         "• Economia de 2 meses\n"
         "• Até 5 slots extras\n\n"
-        "➕ *Slot Extra:* R$14,90 (pagamento único para qualquer plano)"
+        f"➕ *Slot Extra:* R${PLANOS_PRECOS.get('Slot Extra', 0.0):.2f} (pagamento único para qualquer plano)"
     )
 
     botoes = [
@@ -222,11 +223,11 @@ async def responder_menu_4_mensal(update: Update, context: ContextTypes.DEFAULT_
     await query.answer()
 
     texto = (
-        "*📝 RESUMO DO PLANO MENSAL SOLO*\n\n"
-        "💰 R$ 29,90/mês\n"
+        f"*📝 RESUMO DO PLANO MENSAL SOLO*\n\n"
+        f"💰 R$ {PLANOS_PRECOS.get('Mensal Solo', 0.0):.2f}/mês\n"
         "🔹 1 streamer monitorado\n"
         "🔄 Troca de streamer 1x por mês\n"
-        "➕ Máximo 1 slot extra (R$14,90 - pagamento único)\n"
+        f"➕ Máximo 1 slot extra (R${PLANOS_PRECOS.get('Slot Extra', 0.0):.2f} - pagamento único)\n"
         "📅 Renovação mensal\n\n"
         "Deseja continuar com esse plano?"
     )
@@ -249,11 +250,11 @@ async def responder_menu_4_plus(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
 
     texto = (
-        "*📝 RESUMO DO PLANO MENSAL PLUS*\n\n"
-        "💰 R$ 49,90/mês\n"
+        f"*📝 RESUMO DO PLANO MENSAL PLUS*\n\n"
+        f"💰 R$ {PLANOS_PRECOS.get('Mensal Plus', 0.0):.2f}/mês\n"
         "🔹 Até 3 streamers monitorados\n"
         "📦 Ideal para agências/clippers\n"
-        "➕ Até 3 slots adicionais (R$14,90 cada - pagamento único)\n"
+        f"➕ Até 3 slots adicionais (R${PLANOS_PRECOS.get('Slot Extra', 0.0):.2f} cada - pagamento único)\n"
         "📅 Renovação mensal\n\n"
         "Deseja continuar com esse plano?"
     )
@@ -276,11 +277,11 @@ async def responder_menu_4_anual(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     texto = (
-        "*📝 RESUMO DO PLANO ANUAL PRO*\n\n"
-        "💰 R$ 299,00/ano\n"
+        f"*📝 RESUMO DO PLANO ANUAL PRO*\n\n"
+        f"💰 R$ {PLANOS_PRECOS.get('Anual Pro', 0.0):.2f}/ano\n"
         "🔹 3 streamers monitorados + 1 slot bônus\n"
         "🎁 Economia de 2 meses\n"
-        "➕ Até 5 slots adicionais (R$14,90 cada - pagamento único)\n"
+        f"➕ Até 5 slots adicionais (R${PLANOS_PRECOS.get('Slot Extra', 0.0):.2f} cada - pagamento único)\n"
         "📅 Renovação anual\n\n"
         "Deseja continuar com esse plano?"
     )
