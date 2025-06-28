@@ -67,11 +67,16 @@ async def main(application: "Application"):
             grupo_enviado = False
             total_clipes = 0
             minimo_clipes_global = 0
+            requests_count = 0
 
             # 🆕 ATUALIZAR A LISTA DE STREAMERS A CADA CICLO
             logins = twitch.get_top_streamers_brasil(quantidade=QUANTIDADE_STREAMERS)
+            requests_count += 1
             top_streamers = [twitch.get_user_info(login) for login in logins if twitch.get_user_info(login)]
+            requests_count += len(logins) # Conta as chamadas de get_user_info
 
+            # Salva os streamers monitorados para o comando de stats
+            application.bot_data['free_channel_streamers'] = [s['display_name'] for s in top_streamers]
             if not top_streamers:
                 print("❌ Nenhum streamer encontrado no momento.")
                 time.sleep(INTERVALO_MONITORAMENTO)
@@ -91,6 +96,7 @@ async def main(application: "Application"):
                     print(f"🎥 Buscando clipes de @{display_name}...")
 
                 clipes = twitch.get_recent_clips(user_id, started_at=tempo_inicio)
+                requests_count += 1
                 total_clipes += len(clipes)
                 clipes_novos = []
                 for c in clipes:
@@ -107,6 +113,7 @@ async def main(application: "Application"):
 
                 if MODO_MONITORAMENTO_GRATUITO == 'AUTOMATICO':
                     stream = twitch.get_stream_info(user_id)
+                    requests_count += 1
                     viewers = stream["viewer_count"] if stream else 0
                     minimo_clipes = minimo_clipes_por_viewers(viewers)
                     intervalo_agrupamento = MODOS_MONITORAMENTO["AUTOMATICO"]["intervalo_segundos"]
@@ -230,6 +237,8 @@ async def main(application: "Application"):
 
             estado["ultima_execucao"] = datetime.now(timezone.utc).isoformat()
             salvar_estado(estado)
+            # Salva o total de requisições do ciclo
+            application.bot_data['free_channel_requests'] = requests_count
             await asyncio.sleep(INTERVALO_MONITORAMENTO)
 
     except asyncio.CancelledError:

@@ -3,7 +3,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from telegram.ext import Application
-from chat_privado.handlers import registrar_handlers  # agora centralizado
+from telegram.request import HTTPXRequest
 from core.ambiente import TELEGRAM_BOT_TOKEN
 import asyncio
 from core.monitor_clientes import iniciar_monitoramento_clientes
@@ -19,10 +19,14 @@ async def post_initialization(application: Application):
     asyncio.create_task(iniciar_monitoramento_clientes(application))
 
 def iniciar_chat_privado():
-    builder = Application.builder().token(TELEGRAM_BOT_TOKEN)
+    # Aumenta os timeouts para dar mais tempo para a conexão com a API do Telegram
+    request = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
+
+    builder = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request)
     builder.post_init(post_initialization)
     app = builder.build()
 
+    from chat_privado.handlers import registrar_handlers  # agora centralizado
     registrar_handlers(app)
     print("💬 Iniciando bot principal (chat privado e monitores)...")
     app.run_polling()

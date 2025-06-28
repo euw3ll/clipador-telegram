@@ -44,6 +44,7 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
     if not streamers_logins or not id_canal_telegram:
         logger.warning(f"🤖 [Monitor Cliente] Cliente {telegram_id} sem streamers ou ID de canal. Pulando monitoramento.")
         return
+    requests_count = 0
 
     # Verificação das credenciais do cliente
     logger.info(f"🤖 [Monitor Cliente] Verificando credenciais para o usuário {telegram_id}.")
@@ -70,12 +71,14 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
         streamers_info = []
         for login in streamers_logins:
             info = twitch.get_user_info(login)
+            requests_count += 1
             if info:
                 streamers_info.append(info)
         streamers_ids = {s["id"]: s["display_name"] for s in streamers_info}
 
         if not streamers_info:
             logger.warning(f"🤖 [Monitor Cliente] Nenhum streamer válido encontrado para {telegram_id}. Pulando monitoramento.")
+            application.bot_data[f'client_{telegram_id}_requests'] = requests_count
             return
 
         # Correção: buscar clipes retroativos de INTERVALO_ANALISE_MINUTOS_CLIENTE minutos
@@ -85,9 +88,11 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
             logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Buscando clipes de @{display_name}...")
 
             clipes = twitch.get_recent_clips(streamer_id, started_at=tempo_inicio)
+            requests_count += 1
             logger.debug(f"🔎 [Monitor Cliente {telegram_id}] {len(clipes)} clipes encontrados para @{display_name} no período.")
 
             stream = twitch.get_stream_info(streamer_id)
+            requests_count += 1
             viewers = stream["viewer_count"] if stream else 0
             
             if modo_monitoramento == "MANUAL":
@@ -141,6 +146,8 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
                     )
                 except telegram_error.TelegramError as e:
                     logger.error(f"❌ Erro de Telegram ao enviar mensagem para o canal do cliente {telegram_id}: {e}")
+
+        application.bot_data[f'client_{telegram_id}_requests'] = requests_count
 
     except Exception as e:
         logger.error(f"❌ Erro no monitoramento do cliente {telegram_id}: {e}", exc_info=True)

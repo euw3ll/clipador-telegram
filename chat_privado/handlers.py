@@ -29,6 +29,19 @@ from .menus.menu_gerenciamento import (
     placeholder_callback,
 )
 from .menus.menu_comandos import responder_help
+from .admin_commands import (
+    admin_command,
+    reset_user_command,
+    create_channel_command,
+    delete_channel_command,
+    user_info_command,
+    grant_plan_command,
+    add_slot_command,
+    broadcast_command,
+    stats_command,
+    channel_stats_command,
+    message_command,
+)
 
 def registrar_handlers(app: Application):
     """Registra todos os command, callback e conversation handlers do chat privado."""
@@ -42,6 +55,17 @@ def registrar_handlers(app: Application):
     # 2. Comandos
     app.add_handler(CommandHandler("start", responder_inicio))
     app.add_handler(CommandHandler("help", responder_help))
+    app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(CommandHandler("resetuser", reset_user_command))
+    app.add_handler(CommandHandler("createchannel", create_channel_command))
+    app.add_handler(CommandHandler("delchannel", delete_channel_command))
+    app.add_handler(CommandHandler("userinfo", user_info_command))
+    app.add_handler(CommandHandler("grantplan", grant_plan_command))
+    app.add_handler(CommandHandler("addslot", add_slot_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("channelstats", channel_stats_command))
+    app.add_handler(CommandHandler("message", message_command))
 
     # 3. Handlers de CallbackQuery (menus)
     app.add_handler(CallbackQueryHandler(responder_inicio, pattern="^menu_0$"))

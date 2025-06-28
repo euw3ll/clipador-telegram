@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from telethon import TelegramClient
-from telethon.tl.functions.channels import CreateChannelRequest, EditPhotoRequest, InviteToChannelRequest, EditAdminRequest, DeleteChannelRequest # Import DeleteChannelRequest
+from telethon.tl.functions.channels import CreateChannelRequest, EditPhotoRequest, InviteToChannelRequest, EditAdminRequest, DeleteChannelRequest, GetFullChannelRequest
 from telethon.tl.functions.messages import ExportChatInviteRequest # Import ChatAdminRights
 from telethon.tl.types import InputChatUploadedPhoto, ChatBannedRights, User, ChatAdminRights # Import User here
 from telethon.errors import ChannelPrivateError, FloodWaitError, UserBotError, UserNotMutualContactError, UserBlockedError, UserPrivacyRestrictedError, PeerFloodError # Import specific errors
@@ -127,6 +127,22 @@ async def deletar_canal_telegram(id_canal: int):
         except Exception as e:
             logger.error(f"Erro inesperado ao deletar o canal {id_canal}: {e}", exc_info=True)
             return False
+
+async def obter_detalhes_canal(id_canal: int):
+    """Obtém detalhes de um canal, como número de participantes."""
+    async with TelegramClient(SESSION_NAME, API_ID, API_HASH) as client:
+        try:
+            full_channel = await client(GetFullChannelRequest(channel=id_canal))
+            return {
+                "participants_count": full_channel.full_chat.participants_count,
+                "about": full_channel.full_chat.about
+            }
+        except (ValueError, TypeError): # Handle cases where channel ID is invalid before request
+            logger.error(f"ID do canal inválido fornecido: {id_canal}")
+            return None
+        except Exception as e:
+            logger.error(f"Erro ao obter detalhes do canal {id_canal}: {e}", exc_info=True)
+            return None
 
 if __name__ == "__main__":
     import asyncio

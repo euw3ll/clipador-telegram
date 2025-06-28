@@ -801,3 +801,90 @@ def buscar_usuario_por_id(telegram_id: int):
     resultado = cursor.fetchone()
     conn.close()
     return dict(resultado) if resultado else None
+
+def buscar_usuario_por_email(email: str):
+    """Busca os dados de um usuário pelo seu email."""
+    conn = conectar()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM usuarios WHERE LOWER(email) = ?", (email.strip().lower(),))
+    resultado = cursor.fetchone()
+    conn.close()
+    return dict(resultado) if resultado else None
+
+def buscar_ids_assinantes_ativos():
+    """Busca os IDs de todos os usuários que são assinantes ativos (nível 2)."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id FROM usuarios WHERE nivel = 2")
+    resultados = cursor.fetchall()
+    conn.close()
+    return [row[0] for row in resultados]
+
+def conceder_plano_usuario(telegram_id: int, plano: str, dias: int):
+    """Concede um plano a um usuário, ativando-o e definindo a data de expiração."""
+    from datetime import datetime, timedelta
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # Pega o plano antigo para calcular os slots extras comprados
+    cursor.execute("SELECT plano_assinado FROM usuarios WHERE telegram_id = ?", (telegram_id,))
+    resultado_plano_antigo = cursor.fetchone()
+    plano_antigo = resultado_plano_antigo[0] if resultado_plano_antigo else None
+
+    # 1. Calcula a data de expiração
+    data_expiracao = datetime.now() + timedelta(days=dias)
+
+    # 2. Atualiza os dados do usuário
+    cursor.execute("""
+        UPDATE usuarios SET
+            plano_assinado = ?, nivel = 2, data_expiracao = ?,
+            status_pagamento = 'approved_admin', status_canal = 'ativo'
+        WHERE telegram_id = ?
+    """, (plano, data_expiracao, telegram_id))
+
+    # 3. Atualiza os slots na tabela de configuração, preservando slots extras
+    slots_base_novo = 1
+    if plano == "Mensal Plus": slots_base_novo = 3
+    elif plano == "Anual Pro": slots_base_novo = 4
+    
+    cursor.execute("SELECT slots_ativos FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
+    config_result = cursor.fetchone()
+    
+    if config_result:
+        slots_atuais = config_result[0]
+        slots_base_antigo = 1
+        if plano_antigo == "Mensal Plus": slots_base_antigo = 3
+        elif plano_antigo == "Anual Pro": slots_base_antigo = 4
+        slots_extras_comprados = max(0, slots_atuais - slots_base_antigo)
+        novos_slots_totais = slots_base_novo + slots_extras_comprados
+        cursor.execute("UPDATE configuracoes_canal SET slots_ativos = ? WHERE telegram_id = ?", (novos_slots_totais, telegram_id))
+
+    conn.commit()
+    conn.close()
+    logger.info(f"Plano '{plano}' concedido ao usuário {telegram_id} por {dias} dias via admin.")
+
+def obter_estatisticas_gerais():
+    """Busca estatísticas gerais do bot."""
+    conn = conectar()
+    cursor = conn.cursor()
+
+    # Total de usuários
+    cursor.execute("SELECT COUNT(*) FROM usuarios")
+    total_usuarios = cursor.fetchone()[0]
+
+    # Assinantes ativos (nível 2)
+    cursor.execute("SELECT COUNT(*) FROM usuarios WHERE nivel = 2")
+    assinantes_ativos = cursor.fetchone()[0]
+
+    # Canais monitorados (que têm um id_canal_telegram)
+    cursor.execute("SELECT COUNT(*) FROM configuracoes_canal WHERE id_canal_telegram IS NOT NULL")
+    canais_monitorados = cursor.fetchone()[0]
+
+    conn.close()
+
+    return {
+        "total_usuarios": total_usuarios,
+        "assinantes_ativos": assinantes_ativos,
+        "canais_monitorados": canais_monitorados
+    }
