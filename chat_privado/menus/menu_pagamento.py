@@ -45,9 +45,12 @@ from core.database import (
 )
 from io import BytesIO
 import chat_privado.menus.menu_inicial as menu_inicial # Importa o módulo inteiro
+import logging
 from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao # Usado apenas se o gateway for Mercado Pago
 from configuracoes import GATEWAY_PAGAMENTO, KIRVANO_LINKS, PLANOS_PRECOS
 import base64
+
+logger = logging.getLogger(__name__)
 
 PEDIR_EMAIL = 1
 

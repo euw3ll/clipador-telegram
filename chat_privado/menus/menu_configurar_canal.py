@@ -19,6 +19,7 @@ from core.database import (
     is_configuracao_completa # Importação necessária para a verificação
     , obter_plano_usuario # Importar para obter o plano do usuário
 )
+from configuracoes import SUPPORT_USERNAME
 from chat_privado.usuarios import get_nivel_usuario
 import chat_privado.menus.menu_inicial as menu_inicial # Importa o módulo inteiro
 from core.telethon_criar_canal import criar_canal_telegram
@@ -74,6 +75,7 @@ async def limpar_e_enviar_nova_etapa(update: Update, context: ContextTypes.DEFAU
         context.user_data["mensagens_para_apagar"] = [nova_msg.message_id]
 
 ESPERANDO_CREDENCIAIS, ESPERANDO_STREAMERS, ESCOLHENDO_MODO = range(3)
+CONFIGURANDO_PARCEIRO, ESPERANDO_USERNAME_CHEFE, ESCOLHENDO_MODO_PARCEIRO = range(3, 6)
 
 def verificar_status_pagamento(pagamento_id: int) -> str:
     """
@@ -208,9 +210,15 @@ async def menu_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data["modo_monitoramento"] = configuracao.get("modo_monitoramento")
 
         plano_assinado = obter_plano_usuario(telegram_id)
-        limite_streamers = 1
-        if plano_assinado == "Mensal Plus": limite_streamers = 3
-        elif plano_assinado == "Anual Pro": limite_streamers = 5
+        limite_streamers = 1 # Padrão para Mensal Solo
+        if plano_assinado == "Mensal Plus":
+            limite_streamers = 3
+        elif plano_assinado == "Anual Pro":
+            limite_streamers = 4  # 3 do plano + 1 de bônus
+        elif plano_assinado == "PARCEIRO":
+            limite_streamers = 1
+        elif plano_assinado == "SUPER":
+            limite_streamers = 999
         context.user_data["limite_streamers"] = limite_streamers
 
         # If any part of the configuration is already saved, add a "resume" message
@@ -361,12 +369,15 @@ async def receber_credenciais(update: Update, context: ContextTypes.DEFAULT_TYPE
     plano_assinado = obter_plano_usuario(telegram_id)
     
     # Definir limite de streamers com base no plano assinado
-    limite_streamers = 1 # Padrão para Mensal Solo
+    limite_streamers = 1  # Padrão para Mensal Solo
     if plano_assinado == "Mensal Plus":
         limite_streamers = 3
     elif plano_assinado == "Anual Pro":
-        limite_streamers = 5
-    # Adicione mais condições se houver outros planos com limites diferentes
+        limite_streamers = 4  # 3 do plano + 1 de bônus
+    elif plano_assinado == "PARCEIRO":
+        limite_streamers = 1
+    elif plano_assinado == "SUPER":
+        limite_streamers = 999
     
     logger.info(f"Usuário {telegram_id} com plano '{plano_assinado}'. Limite de streamers: {limite_streamers}")
 
@@ -659,6 +670,11 @@ async def salvar_modo_monitoramento(update: Update, context: ContextTypes.DEFAUL
     await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
     return ESCOLHENDO_MODO
 
+async def mostrar_revisao_final(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Exibe a revisão final dos dados antes de salvar."""
+    query = update.callback_query
+    if query:
+        await query.answer()
 async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -708,12 +724,36 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
         import asyncio
         await asyncio.sleep(1)
 
-        # Define a mensagem de boas-vindas
-        welcome_message_to_channel = (
-            f"🎉 Bem-vindo(a) ao seu canal Clipador, @{username}!\n\n"
-            f"Seu canal foi configurado com sucesso e está pronto para receber os melhores clipes dos seus streamers favoritos.\n\n"
-            f"Fique ligado(a)! Os clipes começarão a aparecer aqui em breve, de acordo com o modo de monitoramento que você escolheu."
-        )
+        # Busca a configuração salva para obter o número de slots
+        config_completa = buscar_configuracao_canal(telegram_id)
+        slots_ativos = config_completa.get('slots_ativos', 1)
+        num_streamers = len(streamers)
+
+        # Constrói a lista de streamers para a mensagem
+        streamers_str = "\n".join([f"• `{s}`" for s in streamers]) if streamers else "Nenhum streamer configurado."
+
+        # Monta a mensagem de boas-vindas rica em detalhes
+        welcome_message_parts = [
+            f"🎉 Bem-vindo(a) ao seu canal Clipador, @{username}!\n",
+            "Sua configuração inicial está pronta para começar a clipar os melhores momentos. 🚀\n",
+            "*" + ("-" * 25) + "*",
+            "📋 *Resumo da sua Configuração:*",
+            f"📺 *Streamers Monitorados ({num_streamers}/{slots_ativos}):*",
+            streamers_str,
+            f"🧠 *Modo de Monitoramento:* `{modo}`",
+            "*" + ("-" * 25) + "*\n"
+        ]
+
+        # Adiciona um aviso se houver slots disponíveis
+        slots_disponiveis = slots_ativos - num_streamers
+        if slots_disponiveis > 0:
+            plural_s = "s" if slots_disponiveis > 1 else ""
+            welcome_message_parts.append(
+                f"⚠️ Você ainda tem *{slots_disponiveis} slot{plural_s}* disponível{plural_s} para adicionar novos streamers! "
+                "Você pode fazer isso a qualquer momento no menu de gerenciamento."
+            )
+
+        welcome_message_to_channel = "\n".join(welcome_message_parts)
 
         # --- Start of retry logic for sending welcome message ---
         max_retries_welcome_msg = 5
@@ -749,7 +789,7 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
             f"❌ Ocorreu um erro ao criar seu canal. Por favor, tente novamente mais tarde ou contate o suporte.\n\nDetalhes: {e}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔁 Tentar novamente", callback_data="abrir_configurar_canal")],
-                [InlineKeyboardButton("💬 Contatar Suporte", url="https://t.me/seu_suporte")] # Substitua pelo link do seu suporte
+                [InlineKeyboardButton("💬 Contatar Suporte", url=f"https://t.me/{SUPPORT_USERNAME}")]
             ]),
             parse_mode="Markdown"
         )

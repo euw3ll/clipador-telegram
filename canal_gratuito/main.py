@@ -126,6 +126,18 @@ async def main(application: "Application"):
                 virais = agrupar_clipes_por_proximidade(clipes_novos, intervalo_agrupamento, minimo_clipes)
 
                 for grupo in virais:
+                    # Se este for o primeiro clipe do ciclo, envia as mensagens de status/promoção ANTES.
+                    if not grupo_enviado:
+                        if INTERVALO_MENSAGEM_PROMOCIONAL > 0 and agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
+                            mensagem_promo = "<b>🤑 Transforme clipes em dinheiro!</b>\nCom o Clipador, você tem acesso aos melhores clipes em tempo real, prontos para você monetizar.\n\nGaranta agora 👉 @ClipadorBot"
+                            await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem_promo, parse_mode="HTML")
+                            estado["ultimo_envio_promocional"] = agora
+
+                        if INTERVALO_ATUALIZACAO_STREAMERS > 0 and agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
+                            mensagem_update = f"Estamos acompanhando em tempo real os <b>{len(top_streamers)} streamers mais assistidos do Brasil</b> no momento.\n\n📺 Fique ligado e aproveite os melhores clipes! 🎯"
+                            await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem_update, parse_mode="HTML")
+                            estado["ultimo_envio_atualizacao_streamers"] = agora
+
                     inicio = grupo["inicio"]
                     fim = datetime.fromisoformat(grupo["fim"].replace("Z", "+00:00"))
                     quantidade = len(grupo["clipes"])
@@ -201,18 +213,6 @@ async def main(application: "Application"):
                 except Exception as e:
                     if "Chat description is not modified" not in str(e):
                         print(f"⚠️ Erro ao atualizar descrição: {e}")
-
-            if grupo_enviado:
-                if INTERVALO_MENSAGEM_PROMOCIONAL > 0 and agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
-                    mensagem_promo = "<b>🤑 Transforme clipes em dinheiro!</b>\nCom o Clipador, você tem acesso aos melhores clipes em tempo real, prontos para você monetizar.\n\nGaranta agora 👉 @ClipadorBot"
-                    await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem_promo, parse_mode="HTML")
-                    estado["ultimo_envio_promocional"] = agora
-
-                if INTERVALO_ATUALIZACAO_STREAMERS > 0 and agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
-                    mensagem_update = f"Estamos acompanhando em tempo real os <b>{len(top_streamers)} streamers mais assistidos do Brasil</b> no momento.\n\n📺 Fique ligado e aproveite os melhores clipes! 🎯"
-                    await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem_update, parse_mode="HTML")
-                    estado["ultimo_envio_atualizacao_streamers"] = agora
-
             total_enviados = total_ao_vivo + total_vod
 
             if TIPO_LOG == "PADRAO":

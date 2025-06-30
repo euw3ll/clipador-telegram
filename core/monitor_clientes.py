@@ -8,7 +8,9 @@ from telegram import error as telegram_error
 from core.database import (
     buscar_usuarios_ativos_configurados,
     registrar_grupo_enviado,
-    verificar_grupo_ja_enviado
+    verificar_grupo_ja_enviado,
+    registrar_clipe_chefe_enviado,
+    verificar_clipe_chefe_ja_enviado
 )
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 from canal_gratuito.core.monitor import ( # Reutilizando funções e o dicionário de modos
@@ -40,6 +42,8 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
     streamers_logins = [s.strip() for s in config_cliente['streamers_monitorados'].split(',') if s.strip()] if config_cliente['streamers_monitorados'] else []
     id_canal_telegram = config_cliente['id_canal_telegram']
     modo_monitoramento = config_cliente['modo_monitoramento']
+    modo_parceiro = config_cliente.get('modo_parceiro', 'somente_bot')
+    clipador_chefe_username = config_cliente.get('clipador_chefe_username')
 
     if not streamers_logins or not id_canal_telegram:
         logger.warning(f"🤖 [Monitor Cliente] Cliente {telegram_id} sem streamers ou ID de canal. Pulando monitoramento.")
@@ -90,62 +94,92 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
             clipes = twitch.get_recent_clips(streamer_id, started_at=tempo_inicio)
             requests_count += 1
             logger.debug(f"🔎 [Monitor Cliente {telegram_id}] {len(clipes)} clipes encontrados para @{display_name} no período.")
-
-            stream = twitch.get_stream_info(streamer_id)
-            requests_count += 1
-            viewers = stream["viewer_count"] if stream else 0
             
-            if modo_monitoramento == "MANUAL":
-                # Usa as configurações manuais salvas no banco de dados
-                minimo_clipes = config_cliente.get('manual_min_clips', 3) # Padrão de 3 se não definido
-                intervalo_agrupamento = config_cliente.get('manual_interval_sec', 60) # Padrão de 60s se não definido
-            elif modo_monitoramento == "AUTOMATICO":
-                # Para o modo automático, o min_clipes é dinâmico baseado nos viewers
-                minimo_clipes = minimo_clipes_por_viewers(viewers)
-                intervalo_agrupamento = MODOS_MONITORAMENTO["AUTOMATICO"]["intervalo_segundos"]
-            else:
-                # Para outros modos, usa as configurações fixas
-                config_modo = MODOS_MONITORAMENTO.get(modo_monitoramento, MODOS_MONITORAMENTO["MODO_PADRAO"])
-                minimo_clipes = config_modo["min_clipes"]
-                intervalo_agrupamento = config_modo["intervalo_segundos"]
+            # --- LÓGICA DO CLIPADOR CHEFE ---
+            if clipador_chefe_username and modo_parceiro in ['somente_chefe', 'chefe_e_bot']:
+                for clipe in clipes:
+                    creator_name = clipe.get('creator_name', '')
+                    clipe_id = clipe.get('id')
+                    
+                    if creator_name.lower() == clipador_chefe_username.lower():
+                        if not verificar_clipe_chefe_ja_enviado(telegram_id, clipe_id):
+                            clipe_url = clipe["url"]
+                            created_at_dt = datetime.fromisoformat(clipe["created_at"].replace("Z", "+00:00"))
+                            
+                            tipo_raw = "CLIPE AO VIVO" if eh_clipe_ao_vivo_real(clipe, twitch, streamer_id) else "CLIPE DO VOD"
+                            tipo_formatado = f"\n🔴 <b>{tipo_raw}</b>" if tipo_raw == "CLIPE AO VIVO" else f"\n⏳ <b>{tipo_raw}</b>"
 
-            virais = agrupar_clipes_por_proximidade(clipes, intervalo_agrupamento, minimo_clipes)
+                            mensagem_chefe = (
+                                f"{tipo_formatado}\n"
+                                f"📺 @{display_name}\n"
+                                f"🕒 {created_at_dt.strftime('%d/%m/%Y %H:%M:%S')}\n"
+                                f"✂️ <b>Clipado por: @{clipador_chefe_username}</b>\n\n"
+                                f"{clipe_url}"
+                            )
+                            try:
+                                await application.bot.send_message(chat_id=id_canal_telegram, text=mensagem_chefe, parse_mode="HTML")
+                                registrar_clipe_chefe_enviado(telegram_id, clipe_id)
+                                logger.info(f"✅ [Clipador Chefe] Clipe {clipe_id} de @{display_name} enviado para {telegram_id}.")
+                            except telegram_error.TelegramError as e:
+                                logger.error(f"❌ Erro de Telegram ao enviar clipe do chefe para o canal do cliente {telegram_id}: {e}")
 
-            for grupo in virais:
-                inicio = grupo["inicio"]
-                fim = datetime.fromisoformat(grupo["fim"].replace("Z", "+00:00"))
-
-                # Verifica se este grupo já foi enviado usando o banco de dados
-                if verificar_grupo_ja_enviado(telegram_id, streamer_id, inicio, fim):
-                    continue # Pula para o próximo grupo
-
-                quantidade = len(grupo["clipes"])
-                primeiro_clipe = grupo["clipes"][0]
-                clipe_url = primeiro_clipe["url"]
-
-                tipo_raw = "CLIPE AO VIVO" if eh_clipe_ao_vivo_real(primeiro_clipe, twitch, streamer_id) else "CLIPE DO VOD"
-                tipo_formatado = f"\n🔴 <b>{tipo_raw}</b>" if tipo_raw == "CLIPE AO VIVO" else f"\n⏳ <b>{tipo_raw}</b>"
-
-                mensagem = (
-                    f"{tipo_formatado}\n"
-                    f"📺 @{display_name}\n"
-                    f"🕒 {inicio.strftime('%H:%M:%S')} - {fim.strftime('%H:%M:%S')}\n"
-                    f"🔥 {quantidade} PESSOAS CLIPARAM\n\n"
-                    f"{clipe_url}"
-                )
+            # --- LÓGICA DE DETECÇÃO AUTOMÁTICA ---
+            # A lógica de detecção automática só roda se o modo parceiro permitir.
+            if modo_parceiro in ['somente_bot', 'chefe_e_bot']:
+                stream = twitch.get_stream_info(streamer_id)
+                requests_count += 1
                 
-                try:
-                    # Enviar para o canal do cliente
-                    await application.bot.send_message(chat_id=id_canal_telegram, text=mensagem, parse_mode="HTML")
-                    # Registra o envio no banco de dados para evitar duplicatas
-                    registrar_grupo_enviado(telegram_id, streamer_id, inicio, fim)
-                except telegram_error.TimedOut:
-                    logger.warning(
-                        f"⏳ Timeout ao tentar enviar mensagem para o canal do cliente {telegram_id}. "
-                        "Isso geralmente é um problema de rede temporário. A mensagem será reenviada no próximo ciclo."
+                viewers = 0
+                if stream:
+                    viewers = stream["viewer_count"]
+                elif clipes:
+                    viewers = clipes[0].get("viewer_count", 0)
+
+                minimo_clipes = minimo_clipes_por_viewers(viewers)
+
+                if modo_monitoramento == "MANUAL":
+                    minimo_clipes = config_cliente.get('manual_min_clips', 3)
+                    intervalo_agrupamento = config_cliente.get('manual_interval_sec', 60)
+                else:
+                    config_modo = MODOS_MONITORAMENTO.get(modo_monitoramento, MODOS_MONITORAMENTO["MODO_PADRAO"])
+                    intervalo_agrupamento = config_modo["intervalo_segundos"]
+
+                virais = agrupar_clipes_por_proximidade(clipes, intervalo_agrupamento, minimo_clipes)
+
+                for grupo in virais:
+                    inicio = grupo["inicio"]
+                    fim = datetime.fromisoformat(grupo["fim"].replace("Z", "+00:00"))
+
+                    if verificar_grupo_ja_enviado(telegram_id, streamer_id, inicio, fim):
+                        continue
+
+                    quantidade = len(grupo["clipes"])
+                    primeiro_clipe = grupo["clipes"][0]
+                    clipe_url = primeiro_clipe["url"]
+
+                    tipo_raw = "CLIPE AO VIVO" if eh_clipe_ao_vivo_real(primeiro_clipe, twitch, streamer_id) else "CLIPE DO VOD"
+                    tipo_formatado = f"\n🔴 <b>{tipo_raw}</b>" if tipo_raw == "CLIPE AO VIVO" else f"\n⏳ <b>{tipo_raw}</b>"
+
+                    if quantidade == 1:
+                        texto_clipadores = "🔥 1 PESSOA CLIPOU"
+                    else:
+                        texto_clipadores = f"🔥 {quantidade} PESSOAS CLIPARAM"
+
+                    mensagem = (
+                        f"{tipo_formatado}\n"
+                        f"📺 @{display_name}\n"
+                        f"🕒 {inicio.strftime('%H:%M:%S')} - {fim.strftime('%H:%M:%S')}\n"
+                        f"{texto_clipadores}\n\n"
+                        f"{clipe_url}"
                     )
-                except telegram_error.TelegramError as e:
-                    logger.error(f"❌ Erro de Telegram ao enviar mensagem para o canal do cliente {telegram_id}: {e}")
+                    
+                    try:
+                        await application.bot.send_message(chat_id=id_canal_telegram, text=mensagem, parse_mode="HTML")
+                        registrar_grupo_enviado(telegram_id, streamer_id, inicio, fim)
+                    except telegram_error.TimedOut:
+                        logger.warning(f"⏳ Timeout ao tentar enviar mensagem para o canal do cliente {telegram_id}. A mensagem será reenviada no próximo ciclo.")
+                    except telegram_error.TelegramError as e:
+                        logger.error(f"❌ Erro de Telegram ao enviar mensagem para o canal do cliente {telegram_id}: {e}")
 
         application.bot_data[f'client_{telegram_id}_requests'] = requests_count
 

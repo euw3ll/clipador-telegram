@@ -7,9 +7,11 @@ from core.database import (
     buscar_usuario_por_id,
     atualizar_modo_monitoramento,
     atualizar_streamers_monitorados,
-    atualizar_configuracao_manual
+    atualizar_configuracao_manual,
+    obter_slots_base_plano
 )
 from datetime import datetime, timedelta, timezone
+import asyncio
 import logging
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 
@@ -31,40 +33,45 @@ async def ver_plano_atual(update: Update, context: ContextTypes.DEFAULT_TYPE):
     usuario = buscar_usuario_por_id(telegram_id)
     config = buscar_configuracao_canal(telegram_id)
 
-    if not plano or not usuario:
+    if not plano or not usuario or not config:
         await query.edit_message_text(
-            "❌ Não foi possível encontrar os dados da sua assinatura.",
+            "❌ Não foi possível encontrar os dados da sua assinatura ou canal.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="menu_0")]])
         )
         return
 
     data_expiracao_str = usuario.get('data_expiracao', 'N/A')
     try:
-        data_expiracao = datetime.fromisoformat(data_expiracao_str).strftime('%d/%m/%Y às %H:%M')
+        data_expiracao = datetime.fromisoformat(data_expiracao_str).strftime('%d/%m/%Y')
     except (ValueError, TypeError):
         data_expiracao = "N/A"
 
-    streamers = config.get('streamers_monitorados', '').split(',') if config and config.get('streamers_monitorados') else []
-    num_streamers = len(streamers) if streamers and streamers[0] else 0
-
-    limite_streamers = config.get('slots_ativos', 1) if config else 1
+    # Lógica para calcular slots
+    slots_ativos = config.get('slots_ativos', 1)
+    slots_base = obter_slots_base_plano(plano)
+    slots_extras = max(0, slots_ativos - slots_base)
 
     texto = (
-        f"📋 *Seu Plano Atual*\n\n"
+        f"📋 *Detalhes da sua Assinatura*\n\n"
         f"📦 *Plano:* {plano}\n"
-        f"🗓️ *Expira em:* {data_expiracao}\n"
-        f"📺 *Slots em uso:* {num_streamers}/{limite_streamers}\n\n"
+        f"🗓️ *Expira em:* {data_expiracao}\n\n"
+        f"🎰 *Slots Contratados:*\n"
+        f"  - Slots do plano: `{slots_base}`\n"
+        f"  - Slots extras: `{slots_extras}`\n"
+        f"  - *Total:* `{slots_ativos}`\n\n"
         "Obrigado por fazer parte do Clipador! 🔥"
     )
 
-    botoes = [[InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]]
+    botoes = [
+        [InlineKeyboardButton("⚙️ Gerenciar Canal", callback_data="abrir_menu_gerenciar_canal")],
+        [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
+    ]
 
     await query.edit_message_text(
         text=texto,
         reply_markup=InlineKeyboardMarkup(botoes),
         parse_mode="Markdown"
     )
-
 async def abrir_menu_gerenciar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Exibe o menu de gerenciamento para um canal já configurado."""
     query = update.callback_query
@@ -182,8 +189,8 @@ async def salvar_novo_modo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if id_canal_telegram:
             await context.bot.send_message(
                 chat_id=id_canal_telegram,
-                text=f"🔔 *Atualização de Configuração*\n\nO modo de monitoramento foi alterado para: `{novo_modo}`.",
-                parse_mode="Markdown"
+                text=f"<b>🧠 O modo de monitoramento foi alterado para: {novo_modo}.</b>",
+                parse_mode="HTML"
             )
 
         await query.edit_message_text(
@@ -200,37 +207,12 @@ async def salvar_novo_modo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _construir_menu_streamers(telegram_id: int) -> tuple[str, InlineKeyboardMarkup]:
     """Helper para construir a mensagem e os botões do menu de gerenciamento de streamers."""
-    plano = obter_plano_usuario(telegram_id)
     config = buscar_configuracao_canal(telegram_id)
     streamers = [s for s in config.get('streamers_monitorados', '').split(',') if s] if config and config.get('streamers_monitorados') else []
     num_streamers = len(streamers)
 
-    # Lógica de cooldown para alterações de streamers
-    last_mod_str = config.get('streamers_ultima_modificacao')
-    allow_streamer_modification = True
-    modification_info_message = ""
-    add_buy_slot_button = False # Flag para adicionar o botão de compra
-
-    if last_mod_str:
-        try:
-            # Converte a string TIMESTAMP do banco de dados para objeto datetime (assumindo UTC)
-            last_mod_datetime = datetime.fromisoformat(last_mod_str).replace(tzinfo=timezone.utc)
-            time_since_last_mod = datetime.now(timezone.utc) - last_mod_datetime
-            cooldown_period = timedelta(hours=1)
-
-            if time_since_last_mod < cooldown_period: # Ainda dentro da janela de 1 hora
-                remaining_time = cooldown_period - time_since_last_mod
-                total_seconds = int(remaining_time.total_seconds())
-                hours = total_seconds // 3600
-                minutes = (total_seconds % 3600) // 60
-                modification_info_message = f"\n\n⚠️ Você tem *{hours}h {minutes}m* restantes para alterar a lista de streamers."
-            else: # 1 hora se passou, modificações não são mais permitidas para este período
-                allow_streamer_modification = False
-                modification_info_message = "\n\n❌ O período para alterar a lista de streamers expirou. Para adicionar um novo streamer, você pode aguardar a renovação do seu plano ou comprar um slot extra."
-                add_buy_slot_button = True
-        except ValueError:
-            logger.warning(f"Could not parse streamers_ultima_modificacao: {last_mod_str}")
-            modification_info_message = "\n\n⚠️ Erro ao verificar o período de modificação. Por favor, contate o suporte."
+    # Mensagem informativa padrão sobre a regra de remoção.
+    modification_info_message = "\n\n⚠️ A remoção de streamers só é permitida na primeira hora após a configuração ou na renovação da assinatura."
 
     limite_streamers = config.get('slots_ativos', 1)
 
@@ -239,22 +221,25 @@ async def _construir_menu_streamers(telegram_id: int) -> tuple[str, InlineKeyboa
     texto = (
         f"📺 *Gerenciar Streamers*\n\n"
         f"Você está usando *{num_streamers}/{limite_streamers}* slots.\n\n"
-        f"*Sua lista atual:*\n{texto_lista}\n\n"
-        f"{modification_info_message}" # Mensagem sobre o tempo de alteração
+        f"*Sua lista atual:*\n{texto_lista}"
+        f"{modification_info_message}" # A mensagem agora é sempre a mesma
     )
 
     botoes_linha_1 = []
-    if allow_streamer_modification: # Adiciona botões apenas se a modificação for permitida
-        if num_streamers < limite_streamers:
-            botoes_linha_1.append(InlineKeyboardButton("➕ Adicionar", callback_data="add_streamer"))
-        if num_streamers > 0:
-            botoes_linha_1.append(InlineKeyboardButton("➖ Remover", callback_data="remove_streamer"))
+    # Botão de adicionar aparece se houver slots vagos.
+    if num_streamers < limite_streamers:
+        botoes_linha_1.append(InlineKeyboardButton("➕ Adicionar", callback_data="add_streamer"))
+    
+    # Botão de remover aparece se houver streamers na lista. A verificação de tempo será na ação.
+    if num_streamers > 0:
+        botoes_linha_1.append(InlineKeyboardButton("➖ Remover", callback_data="remove_streamer"))
     
     keyboard_list = []
     if botoes_linha_1:
         keyboard_list.append(botoes_linha_1)
     
-    if add_buy_slot_button:
+    # Botão de comprar slot extra.
+    if num_streamers >= limite_streamers:
         keyboard_list.append([InlineKeyboardButton("➕ Comprar Slot Extra", callback_data="comprar_slot_extra")])
 
     keyboard_list.append([InlineKeyboardButton("🔙 Voltar", callback_data="voltar_gerenciamento")])
@@ -327,8 +312,8 @@ async def adicionar_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if config.get('id_canal_telegram'):
         await context.bot.send_message(
             chat_id=config['id_canal_telegram'],
-            text=f"➕ Streamer `{nome_streamer}` adicionado à lista de monitoramento.",
-            parse_mode="Markdown"
+            text=f"<b>➕ Streamer {nome_streamer} adicionado à lista de monitoramento.</b>",
+            parse_mode="HTML"
         )
 
     # Edita a mensagem original do menu com a lista atualizada
@@ -368,9 +353,26 @@ async def remover_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         except Exception:
             pass
             
+    # --- VERIFICAÇÃO DE TEMPO LIMITE ANTES DE PROCESSAR A REMOÇÃO ---
+    config = buscar_configuracao_canal(telegram_id)
+    last_mod_str = config.get('streamers_ultima_modificacao')
+    
+    if last_mod_str:
+        try:
+            last_mod_datetime = datetime.fromisoformat(last_mod_str).replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - last_mod_datetime > timedelta(hours=1):
+                texto_erro = "❌ A remoção de streamers só é permitida na primeira hora após a configuração ou na renovação da assinatura."
+                msg_erro = await update.message.reply_text(texto_erro, quote=False)
+                await asyncio.sleep(10)
+                await msg_erro.delete()
+                return GERENCIANDO_STREAMERS # Volta para o menu sem fazer a remoção
+        except ValueError:
+            logger.warning(f"Could not parse streamers_ultima_modificacao: {last_mod_str} for user {telegram_id}")
+            # Se não conseguir parsear, permite a remoção por segurança, mas loga o aviso.
+
     try:
         indice = int(update.message.text.strip()) - 1
-        config = buscar_configuracao_canal(telegram_id)
+        # A config já foi buscada acima para a verificação de tempo
         streamers = config.get('streamers_monitorados', '').split(',')
         streamers = [s for s in streamers if s] # Limpa strings vazias
 
@@ -381,8 +383,8 @@ async def remover_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             if config.get('id_canal_telegram'):
                 await context.bot.send_message(
                     chat_id=config['id_canal_telegram'],
-                    text=f"➖ Streamer `{removido}` removido da lista de monitoramento.",
-                    parse_mode="Markdown"
+                    text=f"<b>➖ Streamer {removido} removido da lista de monitoramento.</b>",
+                    parse_mode="HTML"
                 )
             
             # Edita a mensagem original do menu com a lista atualizada
@@ -451,8 +453,8 @@ async def iniciar_configuracao_manual(update: Update, context: ContextTypes.DEFA
         f"⚙️ *Configuração Manual: Mínimo de Clipes*\n\n"
         f"Defina quantos clipes precisam ser criados no mesmo momento para que o bot considere o evento como viral.\n\n"
         f"🔹 *Valor atual:* `{min_clips}`\n"
-        f"💡 *Recomendado:* 3 clipes.\n"
-        f"⚠️ *Limite:* Mínimo 2 clipes.\n\n"
+        f"💡 *Recomendado:* 2 ou mais clipes.\n"
+        f"⚠️ *Limite:* Mínimo 1 clipe.\n\n"
         "Por favor, envie o novo valor."
     )
     botoes = [[InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_config_manual")]]
@@ -464,8 +466,8 @@ async def receber_min_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Recebe e valida o mínimo de clipes."""
     try:
         valor = int(update.message.text)
-        if valor < 2:
-            await update.message.reply_text("❌ Valor inválido. O mínimo de clipes deve ser 2 ou mais. Tente novamente.")
+        if valor < 1:
+            await update.message.reply_text("❌ Valor inválido. O mínimo de clipes deve ser 1 ou mais. Tente novamente.")
             return CONFIG_MIN_CLIPS
     except ValueError:
         await update.message.reply_text("❌ Por favor, envie apenas um número. Tente novamente.")

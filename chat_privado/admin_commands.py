@@ -18,6 +18,7 @@ from core.database import (
     buscar_ids_assinantes_ativos,
     obter_estatisticas_gerais,
     atualizar_streamers_monitorados,
+    resetar_cooldown_streamers,
 )
 from core.telethon_criar_canal import (
     deletar_canal_telegram,
@@ -66,12 +67,29 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/removeslots <id | me>` - Remove todos os slots extras.\n"
         "`/resetuser <id | me>` - Apaga TODOS os dados do usuário.\n\n"
         "📺 *Gerenciamento de Canais*\n"
+        "`/setcooldown <id | me>` - Reseta o timer de 1h para alterar streamers.\n"
         "`/setstreamers <id | me> <s1>...` - Altera a lista de streamers.\n"
         "`/createchannel <id | me>` - Verifica se um usuário pode criar um canal.\n"
         "`/delchannel <id | me>` - Apaga o canal de um usuário e reseta a config.\n"
         "`/channelmembers <add|remove> <owner_id|me> <target_id|me>` - Gerencia membros.\n"
     )
     await update.message.reply_text(texto, parse_mode="Markdown")
+
+async def set_cooldown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reseta o cooldown de 1 hora para alteração de streamers de um usuário."""
+    if not is_usuario_admin(update.effective_user.id): return
+
+    user_id = _parse_user_id(update, context)
+    if not user_id: return
+
+    try:
+        resetar_cooldown_streamers(user_id)
+        await update.message.reply_text(f"✅ Cooldown para alteração de streamers resetado para o usuário `{user_id}`. Ele já pode remover streamers novamente.")
+    except ValueError as e:
+        await update.message.reply_text(f"❌ Erro: {e}")
+    except Exception as e:
+        logger.error(f"Erro ao resetar cooldown para {user_id}: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Erro ao resetar cooldown: {e}")
 
 async def reset_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reseta completamente um usuário para testes."""

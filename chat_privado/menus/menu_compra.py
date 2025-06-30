@@ -1,12 +1,13 @@
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
+from configuracoes import SUPPORT_USERNAME
 
 # 💬 Menu principal quando o usuário acessa o bot no privado
 async def mostrar_menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📦 Ver planos disponíveis", callback_data="ver_planos")],
         [InlineKeyboardButton("💳 Comprar assinatura", callback_data="comprar_assinatura")],
-        [InlineKeyboardButton("🛟 Falar com o suporte", url="https://t.me/seuContatoSuporteAqui")]
+        [InlineKeyboardButton("🛟 Falar com o suporte", url=f"https://t.me/{SUPPORT_USERNAME}")]
     ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -51,7 +52,7 @@ async def comprar_assinatura_callback(update: Update, context: ContextTypes.DEFA
         "💸 Para comprar sua assinatura, envie um Pix para:\n\n"
         "<b>chavepix@email.com</b>\n"
         "Valor: <b>R$49,90</b> (Plano Mensal)\n\n"
-        "Depois do pagamento, envie o comprovante para @SeuContato\n\n"
+        f"Depois do pagamento, envie o comprovante para @{SUPPORT_USERNAME}\n\n"
         "Assim que confirmado, criaremos seu canal automático!"
     )
 

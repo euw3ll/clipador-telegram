@@ -28,7 +28,6 @@ from .menus.menu_gerenciamento import (
     salvar_novo_modo,
     placeholder_callback,
 )
-from .menus.menu_comandos import responder_help
 from .admin_commands import (
     admin_command,
     reset_user_command,
@@ -37,6 +36,7 @@ from .admin_commands import (
     user_info_command,
     set_plan_command,
     add_slot_command,
+    set_cooldown_command,
     remove_slots_command,
     manage_channel_members_command,
     set_streamers_command,
@@ -57,7 +57,6 @@ def registrar_handlers(app: Application):
 
     # 2. Comandos
     app.add_handler(CommandHandler("start", responder_inicio))
-    app.add_handler(CommandHandler("help", responder_help))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("resetuser", reset_user_command))
     app.add_handler(CommandHandler("createchannel", create_channel_command))
@@ -66,6 +65,7 @@ def registrar_handlers(app: Application):
     app.add_handler(CommandHandler("setplan", set_plan_command))
     app.add_handler(CommandHandler("addslot", add_slot_command))
     app.add_handler(CommandHandler("removeslots", remove_slots_command))
+    app.add_handler(CommandHandler("setcooldown", set_cooldown_command))
     app.add_handler(CommandHandler("channelmembers", manage_channel_members_command))
     app.add_handler(CommandHandler("setstreamers", set_streamers_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))

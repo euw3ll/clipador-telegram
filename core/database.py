@@ -46,7 +46,10 @@ def criar_tabelas():
             streamers_ultima_modificacao TIMESTAMP,
             -- Configurações para o modo manual
             manual_min_clips INTEGER,
-            manual_interval_sec INTEGER
+            manual_interval_sec INTEGER,
+            -- Configurações para o plano Parceiro
+            clipador_chefe_username TEXT,
+            modo_parceiro TEXT -- 'somente_chefe', 'chefe_e_bot', 'somente_bot'
         )
     """)
 
@@ -54,6 +57,7 @@ def criar_tabelas():
         CREATE TABLE IF NOT EXISTS historico_envios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             telegram_id INTEGER NOT NULL,
+            clipe_id TEXT, -- Adicionado para rastrear clipes individuais do chefe
             streamer_id TEXT NOT NULL,
             grupo_inicio TIMESTAMP NOT NULL,
             grupo_fim TIMESTAMP NOT NULL,
@@ -64,7 +68,7 @@ def criar_tabelas():
     conn.commit()
     conn.close()
 
-def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo):
+def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo, clipador_chefe=None, modo_parceiro='somente_bot'):
     conn = conectar()
     cursor = conn.cursor()
     streamers_str = ",".join(streamers)
@@ -77,7 +81,7 @@ def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_cli
     elif plano == "Anual Pro":
         slots_iniciais = 4  # 3 do plano + 1 de bônus
     elif plano == "PARCEIRO":
-        slots_iniciais = 5  # Plano para parceiros
+        slots_iniciais = 1  # Plano para parceiros
     elif plano == "SUPER":
         slots_iniciais = 999 # Plano de admin sem limites
 
@@ -89,15 +93,15 @@ def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_cli
         # Atualiza a configuração existente
         cursor.execute("""
             UPDATE configuracoes_canal
-            SET twitch_client_id = ?, twitch_client_secret = ?, streamers_monitorados = ?, modo_monitoramento = ?, slots_ativos = ?, streamers_ultima_modificacao = CURRENT_TIMESTAMP
+            SET twitch_client_id = ?, twitch_client_secret = ?, streamers_monitorados = ?, modo_monitoramento = ?, slots_ativos = ?, streamers_ultima_modificacao = CURRENT_TIMESTAMP, clipador_chefe_username = ?, modo_parceiro = ?
             WHERE telegram_id = ?
-        """, (twitch_client_id, twitch_client_secret, streamers_str, modo, slots_iniciais, telegram_id))
+        """, (twitch_client_id, twitch_client_secret, streamers_str, modo, slots_iniciais, clipador_chefe, modo_parceiro, telegram_id))
     else:
         # Insere uma nova configuração
         cursor.execute("""
-            INSERT INTO configuracoes_canal (telegram_id, twitch_client_id, twitch_client_secret, streamers_monitorados, modo_monitoramento, slots_ativos, streamers_ultima_modificacao)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, (telegram_id, twitch_client_id, twitch_client_secret, streamers_str, modo, slots_iniciais))
+            INSERT INTO configuracoes_canal (telegram_id, twitch_client_id, twitch_client_secret, streamers_monitorados, modo_monitoramento, slots_ativos, streamers_ultima_modificacao, clipador_chefe_username, modo_parceiro)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+        """, (telegram_id, twitch_client_id, twitch_client_secret, streamers_str, modo, slots_iniciais, clipador_chefe, modo_parceiro))
     conn.commit()
     conn.close()
 
@@ -326,6 +330,8 @@ def migrar_tabelas():
         colunas_a_adicionar = {
             "manual_min_clips": "INTEGER",
             "manual_interval_sec": "INTEGER",
+            "clipador_chefe_username": "TEXT",
+            "modo_parceiro": "TEXT"
         }
 
         for nome_coluna, tipo_coluna in colunas_a_adicionar.items():
@@ -516,6 +522,17 @@ def buscar_link_canal(telegram_id):
     conn.close()
     return resultado[0] if resultado else None
 
+def obter_slots_base_plano(plano: str) -> int:
+    """Retorna a quantidade base de slots para um determinado plano."""
+    if plano == "Mensal Plus":
+        return 3
+    elif plano == "Anual Pro":
+        return 4  # 3 do plano + 1 de bônus
+    elif plano == "PARCEIRO":
+        return 1
+    elif plano == "SUPER":
+        return 999
+    return 1  # Padrão para Mensal Solo
 
 def salvar_link_canal(telegram_id, id_canal, link_canal):
     conn = conectar()
@@ -557,7 +574,7 @@ def remover_slots_extras(telegram_id: int):
     elif plano == "Anual Pro":
         slots_base = 4  # 3 do plano + 1 de bônus
     elif plano == "PARCEIRO":
-        slots_base = 5
+        slots_base = 1
     elif plano == "SUPER":
         slots_base = 999
 
@@ -792,6 +809,32 @@ def verificar_grupo_ja_enviado(telegram_id: int, streamer_id: str, grupo_inicio:
     conn.close()
     return resultado is not None
 
+def registrar_clipe_chefe_enviado(telegram_id: int, clipe_id: str):
+    """Registra que um clipe individual do chefe foi enviado."""
+    conn = conectar()
+    cursor = conn.cursor()
+    # Usamos o clipe_id para identificar unicamente o clipe do chefe.
+    # Os outros campos NOT NULL são preenchidos com valores padrão.
+    cursor.execute("""
+        INSERT INTO historico_envios (telegram_id, clipe_id, streamer_id, grupo_inicio, grupo_fim)
+        VALUES (?, ?, 'clipador_chefe', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    """, (telegram_id, clipe_id))
+    conn.commit()
+    conn.close()
+
+def verificar_clipe_chefe_ja_enviado(telegram_id: int, clipe_id: str) -> bool:
+    """Verifica se um clipe específico do chefe já foi enviado."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 1 FROM historico_envios
+        WHERE telegram_id = ? AND clipe_id = ?
+        LIMIT 1
+    """, (telegram_id, clipe_id))
+    resultado = cursor.fetchone()
+    conn.close()
+    return resultado is not None
+
 def deletar_configuracao_canal(telegram_id: int):
     """Remove a linha de configuração de um usuário da tabela configuracoes_canal."""
     conn = conectar()
@@ -825,6 +868,26 @@ def atualizar_streamers_monitorados(telegram_id: int, nova_lista_streamers: list
     """, (streamers_str, telegram_id))
     conn.commit()
     conn.close()
+
+def resetar_cooldown_streamers(telegram_id: int):
+    """Reseta o cooldown para alteração de streamers, permitindo modificações."""
+    conn = conectar()
+    cursor = conn.cursor()
+    # Definir o timestamp como NULL efetivamente reseta o timer,
+    # pois a lógica de verificação permitirá a alteração.
+    cursor.execute("""
+        UPDATE configuracoes_canal
+        SET streamers_ultima_modificacao = NULL
+        WHERE telegram_id = ?
+    """, (telegram_id,))
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        raise ValueError(f"Usuário {telegram_id} não possui um canal configurado.")
+
+    conn.commit()
+    conn.close()
+    logger.info(f"Cooldown de alteração de streamers resetado para o usuário {telegram_id}.")
 
 def buscar_usuario_por_id(telegram_id: int):
     """Busca os dados de um usuário pelo seu telegram_id."""
@@ -881,7 +944,7 @@ def conceder_plano_usuario(telegram_id: int, plano: str, dias: int):
     slots_base_novo = 1
     if plano == "Mensal Plus": slots_base_novo = 3
     elif plano == "Anual Pro": slots_base_novo = 4
-    elif plano == "PARCEIRO": slots_base_novo = 5
+    elif plano == "PARCEIRO": slots_base_novo = 1
     elif plano == "SUPER": slots_base_novo = 999
     
     cursor.execute("SELECT slots_ativos FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
@@ -895,7 +958,7 @@ def conceder_plano_usuario(telegram_id: int, plano: str, dias: int):
         elif plano_antigo == "Anual Pro":
             slots_base_antigo = 4
         elif plano_antigo == "PARCEIRO":
-            slots_base_antigo = 5
+            slots_base_antigo = 1
         elif plano_antigo == "SUPER":
             slots_base_antigo = 999
         slots_extras_comprados = max(0, slots_atuais - slots_base_antigo)

@@ -34,7 +34,7 @@ KIRVANO_LINKS = {
     "Mensal Solo": "https://pay.kirvano.com/3f315c85-0164-4b55-81f2-6ffa661b670c",
     "Mensal Plus": "https://pay.kirvano.com/6283e70f-f385-4355-8cff-e02275935cde",
     "Anual Pro": "https://pay.kirvano.com/09287018-c006-4c0e-87c7-08a6e4464e79",
-    "Slot Extra": "COLE_SEU_LINK_DE_PAGAMENTO_DO_SLOT_EXTRA_AQUI"
+    "Slot Extra": "https://pay.kirvano.com/6f6d41a4-f4a9-459a-892f-b881b34b602e"
 }
 
 # Preços dos planos e produtos
