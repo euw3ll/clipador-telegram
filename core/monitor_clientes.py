@@ -1,7 +1,7 @@
 import asyncio
 import time
 from typing import TYPE_CHECKING
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 from telegram import error as telegram_error
 
@@ -10,7 +10,7 @@ from core.database import (
     registrar_grupo_enviado,
     verificar_grupo_ja_enviado,
     registrar_clipe_chefe_enviado,
-    verificar_clipe_chefe_ja_enviado
+    verificar_clipe_chefe_ja_enviado,
 )
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 from canal_gratuito.core.monitor import ( # Reutilizando funções e o dicionário de modos
@@ -20,6 +20,7 @@ from canal_gratuito.core.monitor import ( # Reutilizando funções e o dicionár
     MODOS_MONITORAMENTO,
     minimo_clipes_por_viewers, # Importa a função dinâmica
 )
+from core.limpeza import executar_limpeza_completa
 
 logger = logging.getLogger(__name__)
 
@@ -198,12 +199,24 @@ async def iniciar_monitoramento_clientes(application: "Application"):
     
     # Dicionário para manter as tarefas de monitoramento ativas por telegram_id
     tarefas_ativas = {}
+    
+    # Controle de tempo para a rotina de limpeza periódica
+    ultima_limpeza = datetime.now()
+    INTERVALO_LIMPEZA_HORAS = 24
 
     while True:
+        # --- Rotina de Limpeza Periódica (executada em background) ---
+        if datetime.now() - ultima_limpeza > timedelta(hours=INTERVALO_LIMPEZA_HORAS):
+            logger.info("Disparando rotina de limpeza em background...")
+            # Executa a função síncrona de limpeza em uma thread separada para não bloquear o loop de eventos
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, executar_limpeza_completa)
+            ultima_limpeza = datetime.now()
+
         usuarios_ativos = buscar_usuarios_ativos_configurados()
         usuarios_ativos_ids = {u['telegram_id'] for u in usuarios_ativos}
         
-        logger.debug(f"🔍 Encontrados {len(usuarios_ativos)} clientes ativos para monitorar.")
+        logger.info(f"🔍 Encontrados {len(usuarios_ativos)} clientes ativos para monitorar.")
         
         # Iniciar/manter tarefas para usuários ativos
         for usuario in usuarios_ativos:
@@ -223,4 +236,4 @@ async def iniciar_monitoramento_clientes(application: "Application"):
         
         # Aguarda um pouco antes de verificar novamente
         await asyncio.sleep(INTERVALO_MONITORAMENTO_CLIENTE)
-        logger.debug("-- Ciclo de gerenciamento de tarefas de monitoramento de clientes concluído. --")
+        logger.debug("-- Ciclo de gerenciamento de tarefas de monitoramento concluído. --")

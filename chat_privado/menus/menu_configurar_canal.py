@@ -699,6 +699,8 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
     # Get the ID of the message that triggered this callback
     current_message_id = query.message.message_id if query.message else None
 
+    caminho_imagem_personalizada = None
+
     # Apagar mensagens antigas, exceto a mensagem atual que será editada
     messages_to_delete_ids = []
     for msg_id in context.user_data.get("mensagens_para_apagar", []):
@@ -714,7 +716,7 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
 
     try:
         # 1. Gerar a imagem personalizada ANTES de criar o canal
-        await query.edit_message_text("⏳ Gerando imagem de perfil personalizada...")
+        await query.edit_message_text("⏳ Gerando imagem de perfil personalizada...", parse_mode="Markdown")
         caminho_imagem_personalizada = await gerar_imagem_canal_personalizada(telegram_id, context)
 
         # 2. Salvar configuração e criar o canal
@@ -805,6 +807,15 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
         # Garante que o status de configuração não seja marcado como completo em caso de falha
         marcar_configuracao_completa(telegram_id, False)
         return ConversationHandler.END
+    finally:
+        # Garante que a imagem temporária seja apagada, mesmo se houver uma falha
+        # no meio do processo, após a imagem ter sido criada.
+        if caminho_imagem_personalizada and os.path.exists(caminho_imagem_personalizada):
+            try:
+                os.remove(caminho_imagem_personalizada)
+                logger.info(f"🗑️ Imagem temporária '{caminho_imagem_personalizada}' apagada na limpeza final.")
+            except OSError as err:
+                logger.error(f"❌ Erro ao apagar imagem temporária na limpeza final: {err}")
 
 def atualizar_telegram_id_usuario(telegram_id):
     from core.database import conectar
