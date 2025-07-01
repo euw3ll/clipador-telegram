@@ -74,8 +74,8 @@ async def limpar_e_enviar_nova_etapa(update: Update, context: ContextTypes.DEFAU
         )
         context.user_data["mensagens_para_apagar"] = [nova_msg.message_id]
 
-ESPERANDO_CREDENCIAIS, ESPERANDO_STREAMERS, ESCOLHENDO_MODO = range(3)
-CONFIGURANDO_PARCEIRO, ESPERANDO_USERNAME_CHEFE, ESCOLHENDO_MODO_PARCEIRO = range(3, 6)
+ESPERANDO_CREDENCIAIS, ESPERANDO_STREAMERS, ESCOLHENDO_MODO, CONFIG_MANUAL_CLIPS, CONFIG_MANUAL_INTERVALO = range(5)
+CONFIGURANDO_PARCEIRO, ESPERANDO_USERNAME_CHEFE, ESCOLHENDO_MODO_PARCEIRO = range(5, 8)
 
 def verificar_status_pagamento(pagamento_id: int) -> str:
     """
@@ -513,7 +513,7 @@ async def escolher_modo_monitoramento(update: Update, context: ContextTypes.DEFA
         "🚀 *Modo Louco:* Muitos clipes rapidamente.\n"
         "🎯 *Modo Padrão:* Equilíbrio entre qualidade e quantidade.\n"
         "🔬 *Modo Cirúrgico:* Apenas clipes virais.\n"
-        "🛠 *Manual:* (em breve)\n\n"
+        "🛠 *Manual:* Você define as regras.\n\n"
         "📌 Você poderá alterar o modo depois."
     )
     botoes = [
@@ -521,7 +521,7 @@ async def escolher_modo_monitoramento(update: Update, context: ContextTypes.DEFA
         [InlineKeyboardButton("🚀 Modo Louco", callback_data="modo_MODO_LOUCO")],
         [InlineKeyboardButton("🎯 Modo Padrão", callback_data="modo_MODO_PADRAO")],
         [InlineKeyboardButton("🔬 Modo Cirúrgico", callback_data="modo_MODO_CIRURGICO")],
-        [InlineKeyboardButton("🛠 Manual", callback_data="abrir_menu_manual")],
+        [InlineKeyboardButton("🛠 Manual", callback_data="iniciar_config_manual_setup")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_streamers")]
     ]
     await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
@@ -548,7 +548,7 @@ async def mostrar_botoes_modos(update: Update, context: ContextTypes.DEFAULT_TYP
         "🚀 *Modo Louco:* Todos os clipes, sem falta.\n"
         "🎯 *Modo Padrão:* Equilíbrio entre qualidade e quantidade.\n"
         "🔬 *Modo Cirúrgico:* Apenas clipes muito interessantes.\n"
-        "🛠 *Manual: Você define as regras de monitoramento.\n\n"
+        "🛠 *Manual:* Você define as regras de monitoramento.\n\n"
         "📌 Você poderá alterar o modo depois."
     )
     botoes = [
@@ -556,80 +556,135 @@ async def mostrar_botoes_modos(update: Update, context: ContextTypes.DEFAULT_TYP
         [InlineKeyboardButton("🚀 Modo Louco", callback_data="modo_MODO_LOUCO")],
         [InlineKeyboardButton("🎯 Modo Padrão", callback_data="modo_MODO_PADRAO")],
         [InlineKeyboardButton("🔬 Modo Cirúrgico", callback_data="modo_MODO_CIRURGICO")],
-        [InlineKeyboardButton("🛠 Manual", callback_data="abrir_menu_manual")],
+        [InlineKeyboardButton("🛠 Manual", callback_data="iniciar_config_manual_setup")],
         [InlineKeyboardButton("🔙 Voltar para Streamers", callback_data="voltar_streamers")]
     ]
     await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
     return ESCOLHENDO_MODO
 
-async def abrir_menu_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Abre o menu de configuração manual."""
+async def iniciar_configuracao_manual_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Inicia o fluxo de configuração manual durante o setup inicial."""
     query = update.callback_query
     await query.answer()
 
     texto = (
-        "⚙️ *Configuração Manual*\n\n"
-        "Ajuste os parâmetros do seu Clipador para ter controle total sobre o que é clipado. "
-        "Ideal para estratégias específicas!\n\n"
-        "1️⃣ *Mínimo de Clipes:*\n"
-        "Define quantos clipes diferentes do mesmo momento precisam ser criados para que o bot considere o evento como viral. (Ex: 3)\n\n"
-        "2️⃣ *Intervalo entre Clipes (segundos):*\n"
-        "O tempo máximo em segundos entre um clipe e outro para que eles sejam agrupados no mesmo evento. (Ex: 60)\n\n"
-        "3️⃣ *Frequência de Monitoramento (minutos):*\n"
-        "De quantos em quantos minutos o bot deve verificar por novos clipes. Um valor menor significa clipes mais rápidos, mas mais uso da API. (Valor mínimo recomendado: 2 minutos)\n\n"
-        "⚠️ *Atenção:* A configuração destes parâmetros estará disponível em breve."
+        "🛠️ *Configuração Manual - Passo 1/2*\n\n"
+        "Defina o *mínimo de clipes* que precisam ser criados no mesmo momento para que o bot considere o evento como viral.\n\n"
+        "💡 *Recomendado:* `2` ou mais.\n"
+        "⚠️ *Limite:* Mínimo `1`.\n\n"
+        "Por favor, envie o número desejado."
     )
-
     botoes = [
-        [InlineKeyboardButton("1️⃣ Mínimo de clipes (Em breve)", callback_data="config_manual_placeholder")],
-        [InlineKeyboardButton("2️⃣ Intervalo (segundos) (Em breve)", callback_data="config_manual_placeholder")],
-        [InlineKeyboardButton("3️⃣ Frequência (minutos) (Em breve)", callback_data="config_manual_placeholder")],
         [InlineKeyboardButton("🔙 Voltar para Modos", callback_data="escolher_modo")]
     ]
 
     await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
-    return ESCOLHENDO_MODO
+    return CONFIG_MANUAL_CLIPS
 
-async def config_manual_placeholder(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Callback de placeholder para botões de configuração manual."""
-    query = update.callback_query
-    await query.answer("Esta funcionalidade estará disponível em breve!", show_alert=True)
+async def receber_min_clips_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Recebe e valida o mínimo de clipes durante o setup."""
+    try:
+        valor = int(update.message.text)
+        if valor < 1:
+            await update.message.reply_text("❌ Valor inválido. O mínimo de clipes deve ser 1 ou mais. Tente novamente.")
+            return CONFIG_MANUAL_CLIPS
+    except ValueError:
+        await update.message.reply_text("❌ Por favor, envie apenas um número. Tente novamente.")
+        return CONFIG_MANUAL_CLIPS
 
-async def salvar_modo_monitoramento(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Adiciona a mensagem do usuário (que é válida) à lista de exclusão para a próxima etapa
+    context.user_data.setdefault("mensagens_para_apagar", []).append(update.message.message_id)
+    context.user_data['manual_min_clips'] = valor
+
+    texto = (
+        f"✅ Mínimo de clipes definido para: *{valor}*\n\n"
+        "🛠️ *Configuração Manual - Passo 2/2*\n\n"
+        "Agora, defina o *intervalo máximo em segundos* entre um clipe e outro para que sejam agrupados no mesmo evento.\n\n"
+        "💡 *Recomendado:* `60` segundos.\n"
+        "⚠️ *Limite:* Mínimo `10` segundos.\n\n"
+        "Por favor, envie o novo valor."
+    )
+    botoes = [[InlineKeyboardButton("🔙 Voltar", callback_data="iniciar_config_manual_setup")]]
+
+    await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
+    return CONFIG_MANUAL_INTERVALO
+
+async def receber_intervalo_setup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Recebe o intervalo, salva as configs manuais e avança para a revisão."""
+    try:
+        valor = int(update.message.text)
+        if valor < 10:
+            await update.message.reply_text("❌ Valor inválido. O intervalo deve ser de no mínimo 10 segundos. Tente novamente.")
+            return CONFIG_MANUAL_INTERVALO
+    except ValueError:
+        await update.message.reply_text("❌ Por favor, envie apenas um número. Tente novamente.")
+        return CONFIG_MANUAL_INTERVALO
+
+    context.user_data.setdefault("mensagens_para_apagar", []).append(update.message.message_id)
+    context.user_data['manual_interval_sec'] = valor
+    context.user_data['modo_monitoramento'] = "MANUAL"
+
+    # Salvar progresso da configuração (etapa modo manual)
+    salvar_progresso_configuracao(
+        update.effective_user.id,
+        etapa="modo",
+        dados_parciais={
+            "modo_monitoramento": "MANUAL",
+            "manual_min_clips": context.user_data['manual_min_clips'],
+            "manual_interval_sec": valor
+        }
+    )
+
+    # Avança para a tela de revisão final
+    return await mostrar_revisao_final(update, context)
+
+async def salvar_modo_monitoramento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Salva o modo de monitoramento predefinido e avança para a revisão."""
     query = update.callback_query
     await query.answer()
     modo = query.data.replace("modo_", "")
     context.user_data["modo_monitoramento"] = modo
-    # Atualiza persistência
-    if "canal_config" in context.user_data:
-        context.user_data["canal_config"]["modo"] = modo
 
     telegram_id = query.from_user.id
     # Salvar progresso da configuração (etapa modo)
-    from core.database import salvar_progresso_configuracao
     salvar_progresso_configuracao(telegram_id, etapa="modo", dados_parciais={
         "modo_monitoramento": modo
     })
+
+    # Avança para a tela de revisão final
+    return await mostrar_revisao_final(update, context)
+
+async def mostrar_revisao_final(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Exibe a revisão final dos dados antes de salvar."""
+    user = update.effective_user
     twitch_client_id = context.user_data.get("twitch_id")
     twitch_client_secret = context.user_data.get("twitch_secret")
     streamers = context.user_data.get("streamers", [])
+    modo = context.user_data.get("modo_monitoramento")
 
-    texto = (
-        f"📋 *Revisão final dos dados:*\n\n"
-        f"👤 Usuário: @{query.from_user.username or query.from_user.first_name}\n"
+    texto_revisao = [
+        "📋 *Revisão final dos dados:*\n",
+        f"👤 Usuário: @{user.username or user.first_name}",
         f"🧪 Client ID: `{twitch_client_id}`\n"
         f"🔐 Client Secret: `{twitch_client_secret[:6]}...`\n"
         f"📺 Streamers: `{', '.join(streamers) if streamers else 'Nenhum'}`\n"
-        f"🧠 Modo: `{modo}`\n\n"
-        f"⚠️ Após salvar, você terá até 1 hora para alterar os streamers preenchidos.\n"
-        f"Slots vazios poderão ser preenchidos depois, sem prazo."
-    )
-    for msg_id in context.user_data.get("mensagens_para_apagar", []):
-        try:
-            await context.bot.delete_message(chat_id=query.from_user.id, message_id=msg_id)
-        except:
-            pass
-    context.user_data["mensagens_para_apagar"] = []
+        f"🧠 Modo: `{modo}`"
+    ]
+
+    if modo == "MANUAL":
+        min_clips = context.user_data.get('manual_min_clips')
+        intervalo = context.user_data.get('manual_interval_sec')
+        texto_revisao.append(f"  - Mín. Clipes: `{min_clips}`")
+        texto_revisao.append(f"  - Intervalo: `{intervalo}s`")
+
+    texto_revisao.extend([
+        "\n",
+        "⚠️ Após salvar, você terá até 1 hora para alterar os streamers preenchidos.",
+        "Slots vazios poderão ser preenchidos depois, sem prazo."
+    ])
+
+    texto = "\n".join(texto_revisao)
+
     botoes = [
         [InlineKeyboardButton("✅ Confirmar e salvar", callback_data="confirmar_salvar_canal")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="escolher_modo")]
@@ -637,53 +692,6 @@ async def salvar_modo_monitoramento(update: Update, context: ContextTypes.DEFAUL
     await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
     return ESCOLHENDO_MODO
 
-async def salvar_modo_monitoramento(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    modo = query.data.replace("modo_", "")
-    context.user_data["modo_monitoramento"] = modo
-    # Atualiza persistência
-    if "canal_config" in context.user_data:
-        context.user_data["canal_config"]["modo"] = modo
-
-    telegram_id = query.from_user.id
-    # Salvar progresso da configuração (etapa modo)
-    from core.database import salvar_progresso_configuracao
-    salvar_progresso_configuracao(telegram_id, etapa="modo", dados_parciais={
-        "modo": modo
-    })
-    twitch_client_id = context.user_data.get("twitch_id")
-    twitch_client_secret = context.user_data.get("twitch_secret")
-    streamers = context.user_data.get("streamers", [])
-
-    texto = (
-        f"📋 *Revisão final dos dados:*\n\n"
-        f"👤 Usuário: @{query.from_user.username or query.from_user.first_name}\n"
-        f"🧪 Client ID: `{twitch_client_id}`\n"
-        f"🔐 Client Secret: `{twitch_client_secret[:6]}...`\n"
-        f"📺 Streamers: `{', '.join(streamers)}`\n"
-        f"🧠 Modo: `{modo}`\n\n"
-        f"⚠️ Após salvar, você terá até 1 hora para alterar os streamers preenchidos.\n"
-        f"Slots vazios poderão ser preenchidos depois, sem prazo."
-    )
-    for msg_id in context.user_data.get("mensagens_para_apagar", []):
-        try:
-            await context.bot.delete_message(chat_id=query.from_user.id, message_id=msg_id)
-        except:
-            pass
-    context.user_data["mensagens_para_apagar"] = []
-    botoes = [
-        [InlineKeyboardButton("✅ Confirmar e salvar", callback_data="confirmar_salvar_canal")],
-        [InlineKeyboardButton("🔙 Voltar", callback_data="voltar_streamers")]
-    ]
-    await limpar_e_enviar_nova_etapa(update, context, texto, botoes)
-    return ESCOLHENDO_MODO
-
-async def mostrar_revisao_final(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Exibe a revisão final dos dados antes de salvar."""
-    query = update.callback_query
-    if query:
-        await query.answer()
 async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -843,12 +851,19 @@ def configurar_canal_conversa():
             ],
             ESCOLHENDO_MODO: [
                 CallbackQueryHandler(mostrar_botoes_modos, pattern="^escolher_modo$"),
-                CallbackQueryHandler(abrir_menu_manual, pattern="^abrir_menu_manual$"),
-                CallbackQueryHandler(config_manual_placeholder, pattern="^config_manual_placeholder$"),
+                CallbackQueryHandler(iniciar_configuracao_manual_setup, pattern="^iniciar_config_manual_setup$"),
                 CallbackQueryHandler(salvar_modo_monitoramento, pattern="^modo_"),
                 CallbackQueryHandler(voltar_streamers, pattern="^voltar_streamers$"),
                 CallbackQueryHandler(confirmar_salvar_canal, pattern="^confirmar_salvar_canal$")
-            ]
+            ],
+            CONFIG_MANUAL_CLIPS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receber_min_clips_setup),
+                CallbackQueryHandler(mostrar_botoes_modos, pattern="^escolher_modo$") # Botão Voltar
+            ],
+            CONFIG_MANUAL_INTERVALO: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receber_intervalo_setup),
+                CallbackQueryHandler(iniciar_configuracao_manual_setup, pattern="^iniciar_config_manual_setup$") # Botão Voltar
+            ],
         },
         fallbacks=[CommandHandler("start", menu_inicial.responder_inicio)],
         allow_reentry=True

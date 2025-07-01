@@ -447,7 +447,7 @@ async def iniciar_configuracao_manual(update: Update, context: ContextTypes.DEFA
     await query.answer()
     
     config = buscar_configuracao_canal(update.effective_user.id)
-    min_clips = config.get('manual_min_clips', 'Não definido')
+    min_clips = config.get('manual_min_clips', 'Não definido') if config else 'Não definido'
     
     texto = (
         f"⚙️ *Configuração Manual: Mínimo de Clipes*\n\n"
@@ -476,7 +476,7 @@ async def receber_min_clips(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     context.user_data['manual_min_clips'] = valor
     
     config = buscar_configuracao_canal(update.effective_user.id)
-    intervalo = config.get('manual_interval_sec', 'Não definido')
+    intervalo = config.get('manual_interval_sec', 'Não definido') if config else 'Não definido'
 
     texto = (
         f"✅ Mínimo de clipes definido para: *{valor}*\n\n"
@@ -524,17 +524,14 @@ async def receber_intervalo_e_salvar(update: Update, context: ContextTypes.DEFAU
     return ConversationHandler.END
 
 async def cancelar_config_manual(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancela a conversa de configuração manual."""
-    query = update.callback_query
-    await query.answer()
-    
+    """Cancela a conversa de configuração manual e volta para o menu de modos."""
     context.user_data.pop('manual_min_clips', None)
     context.user_data.pop('manual_interval_sec', None)
-    
-    await query.edit_message_text(
-        "Operação cancelada.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar para Modos", callback_data="gerenciar_modo")]])
-    )
+
+    # Re-exibe o menu de seleção de modo, sem mensagem de cancelamento.
+    # A função abrir_menu_alterar_modo já lida com a edição da mensagem.
+    await abrir_menu_alterar_modo(update, context)
+
     return ConversationHandler.END
 
 def configurar_manual_conversa():
