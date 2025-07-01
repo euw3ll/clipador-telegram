@@ -191,9 +191,17 @@ async def menu_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TY
     # que serão chamadas via botões ou comandos.
     texto = (
         "👣 *Passo 1* — Crie um aplicativo na Twitch:\n"
+        "Acesse o painel de desenvolvedor da Twitch e crie um novo aplicativo:\n"
         "https://dev.twitch.tv/console/apps\n\n"
-        "Use:\n- Name: Clipador\n- Redirect URL: `https://clipador.com.br/redirect`\n- Category: Chat Bot\n\n"
-        "Depois envie aqui:\n`ID: abc123`\n`SECRET: def456`\n\n"
+        "Preencha os campos da seguinte forma:\n"
+        "• *Nome:* `Clipador`\n"
+        "• *URL de redirecionamento OAuth:* `https://clipador.com.br/redirect`\n"
+        "• *Categoria:* `Chat Bot`\n"
+        "• *Tipo de cliente:* **Confidencial**\n\n"
+        "Após criar, na tela de gerenciamento do aplicativo:\n"
+        "1. Copie o *ID do cliente*.\n"
+        "2. Clique no botão **`[Novo segredo]`** para gerar o seu *Segredo do cliente*. Copie-o e guarde em um local seguro, pois ele só é exibido uma vez!\n\n"
+        "Quando estiver com os dois dados em mãos, clique no botão abaixo para enviá-los."
     )
     botoes = [
         [InlineKeyboardButton("📨 Enviar dados da Twitch", callback_data="enviar_twitch")]
@@ -269,8 +277,9 @@ async def iniciar_envio_twitch(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Não apaga a mensagem anterior (o tutorial), apenas responde a ela.
     texto_instrucao = (
-        "Envie suas credenciais da Twitch no formato abaixo."
-        "\n`ID: abc123`\n`SECRET: def456`\n\n"
+        "Envie suas credenciais da Twitch no formato abaixo, substituindo `SEU_ID_AQUI` e "
+        "`SEU_SEGREDO_AQUI` pelos seus dados.\n\n"
+        "`ID do cliente: SEU_ID_AQUI`\n`Segredo do cliente: SEU_SEGREDO_AQUI`"
     )
     from telegram import ForceReply
     # Usa reply_text na mensagem original do tutorial para criar um "fio" de conversa
@@ -345,16 +354,16 @@ async def receber_credenciais(update: Update, context: ContextTypes.DEFAULT_TYPE
     texto = update.message.text
     twitch_id, twitch_secret = "", ""
     for linha in texto.splitlines():
-        if linha.lower().startswith("id:"):
+        if linha.lower().strip().startswith("id do cliente:"):
             twitch_id = linha.split(":", 1)[1].strip()
-        elif linha.lower().startswith("secret:"):
+        elif linha.lower().strip().startswith("segredo do cliente:"):
             twitch_secret = linha.split(":", 1)[1].strip()
 
     if not twitch_id or not twitch_secret or len(twitch_id) < 10 or len(twitch_secret) < 10:
         await limpar_e_enviar_nova_etapa(
             update,
             context,
-            "❌ Formato inválido. Envie no formato:\n\n`ID: sua_client_id`\n`SECRET: seu_client_secret`",
+            "❌ Formato inválido. Envie no formato:\n\n`ID do cliente: SEU_ID_AQUI`\n`Segredo do cliente: SEU_SEGREDO_AQUI`",
             [],
         )
         return ESPERANDO_CREDENCIAIS
