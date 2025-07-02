@@ -731,7 +731,9 @@ async def confirmar_salvar_canal(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("⏳ Salvando configurações e criando seu canal...")
         salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_client_secret, streamers, modo)
         id_canal, link_canal = await criar_canal_telegram(
-            nome_usuario=username, telegram_id=telegram_id, nome_exibicao=query.from_user.first_name, caminho_imagem=caminho_imagem_personalizada
+            nome_exibicao=query.from_user.first_name,
+            telegram_id=telegram_id,
+            caminho_imagem=caminho_imagem_personalizada
         )
         # Salva o link do canal no banco de dados para uso futuro
         from core.database import salvar_link_canal

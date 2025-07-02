@@ -30,7 +30,7 @@ SESSION_NAME = os.getenv("TELETHON_SESSION_NAME", "clipador_session")
 # Caminho da imagem do canal
 IMAGEM_PADRAO_PATH = os.path.join("images", "logo_canal.jpg")  # certifique-se que essa imagem exista
 
-async def criar_canal_telegram(nome_usuario: str, telegram_id: int, nome_exibicao: str = None, caminho_imagem: str = None):
+async def criar_canal_telegram(nome_exibicao: str, telegram_id: int, caminho_imagem: str = None):
     """
     Cria um canal privado no Telegram, adiciona o usuário e define a foto.
     Utiliza um arquivo de sessão para evitar logins interativos repetidos.
@@ -43,9 +43,9 @@ async def criar_canal_telegram(nome_usuario: str, telegram_id: int, nome_exibica
         logger.info(f"Telethon conectado como: {me.username}")
 
         # Cria o canal
-        logger.info(f"Telethon: Criando canal para {nome_usuario}...")
+        logger.info(f"Telethon: Criando canal para {nome_exibicao} (ID: {telegram_id})...")
         canal = await client(CreateChannelRequest(
-            title=f"Clipador 🎥 @{nome_usuario}", # Sempre usar este formato
+            title=f"Clipador 🎥 @{nome_exibicao}", # Usa o nome de exibição diretamente
             about=f"⚙️ Gerencie seu canal em {TELEGRAM_BOT_USERNAME}\n\nQue a caça aos clipes comece! 🏹",
             megagroup=False # False para criar um canal de transmissão, não um supergrupo
         ))
@@ -76,30 +76,37 @@ async def criar_canal_telegram(nome_usuario: str, telegram_id: int, nome_exibica
         else:
             logger.warning("⚠️ Aviso: Variável de ambiente TELEGRAM_BOT_USERNAME não configurada. O bot não será adicionado como administrador do canal.")
 
-        # 2. Adiciona o usuário (cliente) ao canal como um membro normal
-        logger.info(f"Telethon: Adicionando usuário {telegram_id} ao canal {canal_entidade.id}...")
-        await client(InviteToChannelRequest(
-            channel=canal_entidade,
-            users=[telegram_id]
-        ))
-        logger.info(f"✅ Usuário {telegram_id} adicionado ao canal.")
-
-        # 3. Define a imagem do canal (se existir) de forma segura
+        # 2. Define a imagem do canal (personalizada ou padrão)
         try:
             caminho_final_imagem = caminho_imagem or IMAGEM_PADRAO_PATH
             if os.path.exists(caminho_final_imagem):
-                file = await client.upload_file(caminho_final_imagem)
+                logger.info(f"Telethon: Definindo imagem de perfil do canal {canal_entidade.id} com '{caminho_final_imagem}'...")
+                uploaded_photo = await client.upload_file(caminho_final_imagem)
                 await client(EditPhotoRequest(
                     channel=canal_entidade,
-                    photo=InputChatUploadedPhoto(file)
+                    photo=InputChatUploadedPhoto(uploaded_photo)
                 ))
                 logger.info(f"✅ Imagem de perfil definida para o canal {canal_entidade.id}.")
             else:
-                logger.warning(f"⚠️ Aviso: Imagem padrão não encontrada em {caminho_final_imagem}. Canal criado sem imagem de perfil.")
+                logger.warning(f"⚠️ Aviso: Imagem não encontrada em {caminho_final_imagem}. Canal criado sem imagem de perfil.")
         except Exception as e:
             logger.error(f"⚠️ Aviso: Não foi possível definir a foto do canal. Erro: {e}", exc_info=True)
+            # Não interrompe o fluxo, continua mesmo que a foto falhe
 
-        # 4. Gera o link de convite
+        # 3. Adiciona o usuário (cliente) ao canal
+        try:
+            logger.info(f"Telethon: Adicionando usuário {telegram_id} ao canal {canal_entidade.id}...")
+            await client(InviteToChannelRequest(
+                channel=canal_entidade,
+                users=[telegram_id]
+            ))
+            logger.info(f"✅ Usuário {telegram_id} adicionado ao canal.")
+        except (UserPrivacyRestrictedError, UserNotMutualContactError) as e:
+            logger.warning(f"⚠️ Não foi possível adicionar {telegram_id} diretamente ao canal devido às suas configurações de privacidade: {e}. Um link de convite será usado como alternativa.")
+        except Exception as e:
+            logger.error(f"❌ Erro ao adicionar usuário {telegram_id} ao canal: {e}", exc_info=True)
+
+        # 4. Gera o link de convite (essencial como fallback e para o botão final)
         logger.info(f"Telethon: Gerando link de convite para o canal {canal_entidade.id}...")
         link_convite = await client(ExportChatInviteRequest(peer=canal_entidade))
         logger.info(f"✅ Link de convite gerado: {link_convite.link}")

@@ -52,7 +52,45 @@ async def gerar_imagem_canal_personalizada(telegram_id: int, context) -> str:
 
             base_img.paste(user_img, (position_x, position_y), mask)
         else:
-            logger.info(f"Usuário {telegram_id} não possui foto de perfil. Usando apenas a imagem base.")
+            logger.info(f"Usuário {telegram_id} não possui foto de perfil. Gerando avatar com inicial.")
+            
+            # 1. Obter nome do usuário para a inicial
+            user = await context.bot.get_chat(telegram_id)
+            initial = user.first_name[0].upper() if user.first_name else '?'
+
+            # 2. Definir tamanho e criar a imagem do avatar
+            base_width, base_height = base_img.size
+            target_size = int(min(base_width, base_height) * 0.6)
+            
+            # 3. Escolher uma cor de fundo baseada no ID do usuário para consistência
+            colors = [
+                (255, 105, 97), (255, 182, 193), (255, 204, 153), (204, 255, 153),
+                (173, 216, 230), (204, 153, 255), (255, 153, 204), (153, 255, 204)
+            ]
+            bg_color = colors[telegram_id % len(colors)]
+
+            # 4. Desenhar o avatar
+            avatar_img = Image.new('RGBA', (target_size, target_size), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(avatar_img)
+            draw.ellipse((0, 0, target_size, target_size), fill=bg_color)
+
+            # 5. Adicionar a inicial no centro
+            try:
+                font_size = int(target_size * 0.6)
+                font = ImageFont.truetype("arial.ttf", font_size)
+            except IOError:
+                logger.warning("Fonte 'arial.ttf' não encontrada, usando fonte padrão.")
+                font = ImageFont.load_default()
+
+            bbox = draw.textbbox((0, 0), initial, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            text_x = (target_size - text_width) / 2
+            text_y = (target_size - text_height) / 2 - bbox[1]
+            draw.text((text_x, text_y), initial, font=font, fill=(255, 255, 255))
+
+            # 6. Colar o avatar gerado na imagem base
+            base_img.paste(avatar_img, (base_width - target_size - int(target_size * 0.02), base_height - target_size - int(target_size * 0.02)), avatar_img)
 
         # Salvar imagem final
         # Converte para RGB antes de salvar como JPEG para evitar problemas com o canal alfa
