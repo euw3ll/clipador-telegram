@@ -12,6 +12,7 @@ from core.database import (
 )
 from datetime import datetime, timedelta, timezone
 import asyncio
+import re
 import logging
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 
@@ -284,49 +285,73 @@ async def adicionar_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception:
             pass
 
-    nome_streamer = update.message.text.strip().replace('@', '')
+    # Etapa 4.1: Preparar a função para múltiplos streamers
+    nomes_input = update.message.text.strip().replace('@', '')
+    # Usa regex para separar por vírgula ou espaço e filtra itens vazios
+    nomes_para_adicionar = [nome for nome in re.split(r'[,\s]+', nomes_input) if nome]
+
+    if not nomes_para_adicionar:
+        return GERENCIANDO_STREAMERS # Não faz nada se a entrada for vazia
 
     config = buscar_configuracao_canal(telegram_id)
     twitch_id = config.get("twitch_client_id")
     twitch_secret = config.get("twitch_client_secret")
-    
+    streamers_atuais = [s for s in (config.get('streamers_monitorados', '') or '').split(',') if s]
+    limite_slots = config.get('slots_ativos', 1)
+
+    adicionados_sucesso = []
+    falhas_validacao = []
+    falhas_limite = []
+
+    # Etapa 4.2: Implementar o loop de validação
     try:
-        twitch = TwitchAPI(twitch_id, twitch_secret) # Agora passa as credenciais do usuário
-        if not twitch.get_user_info(nome_streamer):
-            # Informa o erro e re-exibe o menu principal de gerenciamento
-            await update.message.reply_text(f"❌ Streamer '{nome_streamer}' não encontrado. Tente novamente.", quote=False)
-            texto, keyboard = await _construir_menu_streamers(telegram_id)
-            menu_msg_id = context.user_data.get('gerenciamento_streamer_menu_id')
-            if menu_msg_id:
-                await context.bot.edit_message_text(chat_id=telegram_id, message_id=menu_msg_id, text=texto, reply_markup=keyboard, parse_mode="Markdown")
-            return GERENCIANDO_STREAMERS # Volta para o estado principal
+        twitch = TwitchAPI(twitch_id, twitch_secret)
+        for nome_streamer in nomes_para_adicionar:
+            # Verifica se o usuário já atingiu o limite de slots
+            if len(streamers_atuais) + len(adicionados_sucesso) >= limite_slots:
+                falhas_limite.append(nome_streamer)
+                continue
+
+            # Verifica se o streamer já está na lista (ignorando maiúsculas/minúsculas)
+            if nome_streamer.lower() in [s.lower() for s in streamers_atuais] or nome_streamer.lower() in [s.lower() for s in adicionados_sucesso]:
+                continue
+
+            if twitch.get_user_info(nome_streamer):
+                adicionados_sucesso.append(nome_streamer)
+            else:
+                falhas_validacao.append(nome_streamer)
     except Exception as e:
-        await update.message.reply_text("❌ Erro ao validar streamer. Verifique suas credenciais e tente novamente.", quote=False)
+        logger.error(f"Erro ao validar streamers para {telegram_id}: {e}")
+        await update.message.reply_text("❌ Erro ao validar streamers. Verifique suas credenciais e tente novamente.")
         return GERENCIANDO_STREAMERS
 
-    streamers = config.get('streamers_monitorados', '').split(',') if config.get('streamers_monitorados') else []
-    streamers = [s for s in streamers if s] # Limpa strings vazias
-    streamers.append(nome_streamer)
-    atualizar_streamers_monitorados(telegram_id, streamers)
+    # Etapa 4.3: Salvar, notificar e atualizar a interface
+    if adicionados_sucesso:
+        streamers_atuais.extend(adicionados_sucesso)
+        atualizar_streamers_monitorados(telegram_id, streamers_atuais)
+        if config.get('id_canal_telegram'):
+            await context.bot.send_message(
+                chat_id=config['id_canal_telegram'],
+                text=f"<b>➕ Streamer(s) adicionado(s): {', '.join(adicionados_sucesso)}.</b>",
+                parse_mode="HTML"
+            )
 
-    if config.get('id_canal_telegram'):
-        await context.bot.send_message(
-            chat_id=config['id_canal_telegram'],
-            text=f"<b>➕ Streamer {nome_streamer} adicionado à lista de monitoramento.</b>",
-            parse_mode="HTML"
-        )
+    feedback_parts = []
+    if adicionados_sucesso: feedback_parts.append(f"✅ Adicionados: `{', '.join(adicionados_sucesso)}`")
+    if falhas_validacao: feedback_parts.append(f"❌ Não encontrados: `{', '.join(falhas_validacao)}`")
+    if falhas_limite: feedback_parts.append(f"🚫 Limite de slots atingido. Não foi possível adicionar: `{', '.join(falhas_limite)}`")
 
-    # Edita a mensagem original do menu com a lista atualizada
+    if feedback_parts:
+        feedback_msg = await update.message.reply_text("\n".join(feedback_parts), parse_mode="Markdown")
+        await asyncio.sleep(15)
+        try:
+            await feedback_msg.delete()
+        except Exception: pass
+
     menu_msg_id = context.user_data.get('gerenciamento_streamer_menu_id')
     texto, keyboard = await _construir_menu_streamers(telegram_id)
     if menu_msg_id:
-        await context.bot.edit_message_text(
-            chat_id=telegram_id,
-            message_id=menu_msg_id,
-            text=texto, 
-            reply_markup=keyboard, 
-            parse_mode="Markdown"
-        )
+        await context.bot.edit_message_text(chat_id=telegram_id, message_id=menu_msg_id, text=texto, reply_markup=keyboard, parse_mode="Markdown")
     
     return GERENCIANDO_STREAMERS
 
@@ -362,7 +387,7 @@ async def remover_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             last_mod_datetime = datetime.fromisoformat(last_mod_str).replace(tzinfo=timezone.utc)
             if datetime.now(timezone.utc) - last_mod_datetime > timedelta(hours=1):
                 texto_erro = "❌ A remoção de streamers só é permitida na primeira hora após a configuração ou na renovação da assinatura."
-                msg_erro = await update.message.reply_text(texto_erro, quote=False)
+                msg_erro = await update.message.reply_text(texto_erro)
                 await asyncio.sleep(10)
                 await msg_erro.delete()
                 return GERENCIANDO_STREAMERS # Volta para o menu sem fazer a remoção
@@ -400,10 +425,10 @@ async def remover_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 )
             return GERENCIANDO_STREAMERS
         else:
-            await update.message.reply_text("❌ Número inválido. Tente novamente.", quote=False)
+            await update.message.reply_text("❌ Número inválido. Tente novamente.")
             return AGUARDANDO_REMOCAO
     except (ValueError, IndexError):
-        await update.message.reply_text("❌ Entrada inválida. Por favor, envie apenas o número.", quote=False)
+        await update.message.reply_text("❌ Entrada inválida. Por favor, envie apenas o número.")
         return AGUARDANDO_REMOCAO
 
 async def encerrar_gerenciamento_streamers(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

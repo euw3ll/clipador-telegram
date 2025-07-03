@@ -19,10 +19,21 @@ async def post_initialization(application: Application):
     asyncio.create_task(iniciar_monitoramento_clientes(application))
 
 def iniciar_chat_privado():
-    # Aumenta os timeouts para dar mais tempo para a conexão com a API do Telegram
-    request = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
+    # Configuração de request para get_updates (long polling)
+    # Não precisa de um pool grande, mas de um read_timeout alto
+    get_updates_request = HTTPXRequest(connect_timeout=10.0, read_timeout=60.0)
 
-    builder = Application.builder().token(TELEGRAM_BOT_TOKEN).request(request)
+    # Configuração de request para todas as outras chamadas de API
+    # Pool maior para lidar com monitores concorrentes e outras tarefas
+    api_request = HTTPXRequest(connect_timeout=10.0, read_timeout=10.0, connection_pool_size=50)
+
+    builder = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .request(api_request)
+        .get_updates_request(get_updates_request)
+    )
+
     builder.post_init(post_initialization)
     app = builder.build()
 

@@ -3,6 +3,7 @@ import time
 from typing import TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
 import logging
+import requests
 from telegram import error as telegram_error
 
 from core.database import (
@@ -194,6 +195,26 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
 
         application.bot_data[f'client_{telegram_id}_requests'] = requests_count
 
+    except requests.exceptions.HTTPError as e:
+        if e.response and e.response.status_code == 401:
+            logger.error(f"❌ Credenciais Twitch inválidas para o cliente {telegram_id}. Notificando...")
+            mensagem_erro = (
+                "⚠️ *Atenção: Suas credenciais da Twitch são inválidas ou expiraram!*\n\n"
+                "O monitoramento para seu canal está pausado. Por favor, vá até o bot "
+                f"(@{application.bot.username}) e use o menu de gerenciamento para "
+                "reconfigurar suas credenciais da Twitch."
+            )
+            try:
+                await application.bot.send_message(
+                    chat_id=id_canal_telegram,
+                    text=mensagem_erro,
+                    parse_mode="Markdown"
+                )
+            except Exception as send_error:
+                logger.error(f"❌ Falha ao enviar notificação de erro de credenciais para o canal {id_canal_telegram}: {send_error}")
+        else:
+            # Se for outro erro HTTP, apenas loga para ser investigado.
+            logger.error(f"❌ Erro HTTP no monitoramento do cliente {telegram_id}: {e}", exc_info=True)
     except Exception as e:
         logger.error(f"❌ Erro no monitoramento do cliente {telegram_id}: {e}", exc_info=True)
 

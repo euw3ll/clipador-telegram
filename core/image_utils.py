@@ -77,9 +77,12 @@ async def gerar_imagem_canal_personalizada(telegram_id: int, context) -> str:
             # 5. Adicionar a inicial no centro
             try:
                 font_size = int(target_size * 0.6)
-                font = ImageFont.truetype("arial.ttf", font_size)
+                # Usa uma fonte local para garantir consistência entre ambientes.
+                # O arquivo .ttf deve estar na pasta 'assets/fonts/'.
+                font_path = os.path.join("assets", "fonts", "DejaVuSans.ttf")
+                font = ImageFont.truetype(font_path, font_size)
             except IOError:
-                logger.warning("Fonte 'arial.ttf' não encontrada, usando fonte padrão.")
+                logger.warning(f"Fonte em '{font_path}' não encontrada. Usando fonte padrão. Certifique-se de que o arquivo de fonte existe.")
                 font = ImageFont.load_default()
 
             bbox = draw.textbbox((0, 0), initial, font=font)

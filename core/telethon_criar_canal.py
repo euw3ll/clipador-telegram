@@ -101,7 +101,7 @@ async def criar_canal_telegram(nome_exibicao: str, telegram_id: int, caminho_ima
                 users=[telegram_id]
             ))
             logger.info(f"✅ Usuário {telegram_id} adicionado ao canal.")
-        except (UserPrivacyRestrictedError, UserNotMutualContactError) as e:
+        except (UserPrivacyRestrictedError, UserNotMutualContactError, ValueError) as e:
             logger.warning(f"⚠️ Não foi possível adicionar {telegram_id} diretamente ao canal devido às suas configurações de privacidade: {e}. Um link de convite será usado como alternativa.")
         except Exception as e:
             logger.error(f"❌ Erro ao adicionar usuário {telegram_id} ao canal: {e}", exc_info=True)
