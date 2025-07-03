@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, ConversationHandler, CallbackQueryHandler, MessageHandler, filters, CommandHandler
 from configuracoes import KIRVANO_LINKS, PLANOS_PRECOS
 from core.database import (
     buscar_configuracao_canal,
@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import re
 import logging
+from chat_privado.menus.menu_configurar_canal import responder_inicio
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 
 logger = logging.getLogger(__name__)
@@ -458,7 +459,10 @@ def gerenciar_streamers_conversa():
             AGUARDANDO_ADICAO: [MessageHandler(filters.TEXT & ~filters.COMMAND, adicionar_streamer)],
             AGUARDANDO_REMOCAO: [MessageHandler(filters.TEXT & ~filters.COMMAND, remover_streamer)],
         },
-        fallbacks=[CallbackQueryHandler(encerrar_gerenciamento_streamers, pattern="^voltar_gerenciamento$")],
+        fallbacks=[
+            CallbackQueryHandler(encerrar_gerenciamento_streamers, pattern="^voltar_gerenciamento$"),
+            CommandHandler("start", responder_inicio)
+        ],
         map_to_parent={
             ConversationHandler.END: -1
         }
@@ -567,7 +571,10 @@ def configurar_manual_conversa():
             CONFIG_MIN_CLIPS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_min_clips)],
             CONFIG_INTERVALO: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_intervalo_e_salvar)],
         },
-        fallbacks=[CallbackQueryHandler(cancelar_config_manual, pattern="^cancelar_config_manual$")],
+        fallbacks=[
+            CallbackQueryHandler(cancelar_config_manual, pattern="^cancelar_config_manual$"),
+            CommandHandler("start", responder_inicio)
+        ],
         map_to_parent={
             ConversationHandler.END: -1
         }

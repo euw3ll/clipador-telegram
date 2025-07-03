@@ -62,7 +62,7 @@ async def verificar_novo_membro(update: Update, context: ContextTypes.DEFAULT_TY
 
             try:
                 # 1. Customizar Título e Foto
-                await context.bot.set_chat_title(chat_id=chat_id, title=f"Clipador 🎥 @{nome_exibicao}")
+                await context.bot.set_chat_title(chat_id=chat_id, title=f"Clipador 🎥 {nome_exibicao}")
                 if caminho_imagem_perfil and os.path.exists(caminho_imagem_perfil):
                     with open(caminho_imagem_perfil, 'rb') as photo_file:
                         await context.bot.set_chat_photo(chat_id=chat_id, photo=photo_file)

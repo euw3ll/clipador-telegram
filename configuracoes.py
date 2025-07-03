@@ -12,6 +12,9 @@ ADMIN_TELEGRAM_IDS = [1527996001] # Adicione o ID do novo admin aqui
 
 """CONFIGURAÇÕES DO CANAL GRATUITO"""
 # 💬 CANAL DO TELEGRAM
+CANAL_GRATUITO_ID = TELEGRAM_CHAT_ID # ID numérico do canal gratuito
+LINK_CANAL_GRATUITO = "https://t.me/clipadorfree" # IMPORTANTE: Substitua pelo link de convite do seu canal gratuito
+
 INTERVALO_ATUALIZAR_DESCRICAO = 300
 INTERVALO_MENSAGEM_PROMOCIONAL = 800
 INTERVALO_MENSAGEM_HEADER = 5400

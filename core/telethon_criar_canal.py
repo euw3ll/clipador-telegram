@@ -45,7 +45,7 @@ async def criar_canal_telegram(nome_exibicao: str, telegram_id: int, caminho_ima
         # Cria o canal
         logger.info(f"Telethon: Criando canal para {nome_exibicao} (ID: {telegram_id})...")
         canal = await client(CreateChannelRequest(
-            title=f"Clipador 🎥 @{nome_exibicao}", # Usa o nome de exibição diretamente
+            title=f"Clipador 🎥 {nome_exibicao}", # Usa o nome de exibição diretamente
             about=f"⚙️ Gerencie seu canal em {TELEGRAM_BOT_USERNAME}\n\nQue a caça aos clipes comece! 🏹",
             megagroup=False # False para criar um canal de transmissão, não um supergrupo
         ))

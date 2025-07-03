@@ -1,8 +1,9 @@
 import os
 import sqlite3
 import requests
+import asyncio
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, error as telegram_error
 from telegram.ext import (
     CallbackContext, CommandHandler, MessageHandler,
     CallbackQueryHandler, ConversationHandler, filters, ContextTypes
@@ -14,14 +15,14 @@ from core.database import (
     limpar_progresso_configuracao,
     conectar,
     buscar_link_canal,
-    marcar_configuracao_completa, # Importação necessária para a verificação
-    salvar_configuracao_canal_completa, # Importação para salvar a configuração final
-    is_configuracao_completa # Importação necessária para a verificação
-    , obter_plano_usuario # Importar para obter o plano do usuário
+    marcar_configuracao_completa,
+    salvar_configuracao_canal_completa,
+    is_configuracao_completa,
+    obter_plano_usuario,
+    adicionar_usuario, verificar_aviso_enviado, marcar_aviso_enviado
 )
-from configuracoes import SUPPORT_USERNAME
+from configuracoes import SUPPORT_USERNAME, CANAL_GRATUITO_ID, LINK_CANAL_GRATUITO
 from chat_privado.usuarios import get_nivel_usuario
-import chat_privado.menus.menu_inicial as menu_inicial # Importa o módulo inteiro
 from core.telethon_criar_canal import criar_canal_telegram
 from canal_gratuito.core.twitch import TwitchAPI # Importa a TwitchAPI para validação
 from core.image_utils import gerar_imagem_canal_personalizada
@@ -867,9 +868,119 @@ def configurar_canal_conversa():
                 CallbackQueryHandler(iniciar_configuracao_manual_setup, pattern="^iniciar_config_manual_setup$") # Botão Voltar
             ],
         },
-        fallbacks=[CommandHandler("start", menu_inicial.responder_inicio)],
+        fallbacks=[CommandHandler("start", responder_inicio)],
         allow_reentry=True
     )
+
+async def exibir_menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Exibe o menu principal com base no status do usuário."""
+    telegram_id = update.effective_user.id
+    nome = update.effective_user.first_name or "Clipado"
+    # A função get_nivel_usuario já adiciona o usuário se ele não existir,
+    # mas a chamada explícita em responder_inicio garante que ele exista antes da verificação do canal.
+    nivel = get_nivel_usuario(telegram_id, nome)
+
+    texto = ""
+    botoes = []
+
+    botao_suporte = [InlineKeyboardButton("💬 Suporte", url=f"https://t.me/{SUPPORT_USERNAME}")]
+
+    texto_padrao_novo_usuario = (
+        f"👋 Aoba Clipadô! Seja bem-vindo {nome}, que nome lindo 😍\n\n"
+        "Aqui você recebe os *melhores momentos das lives* direto no seu Telegram, sem esforço 🎯\n\n"
+        "Notei que você *ainda não tem uma assinatura ativa* 😱\n"
+        "Mas relaxa... ainda dá tempo de mudar isso 💸"
+    )
+    texto_expirado = (
+        f"😕 Sua assinatura expirou, {nome}.\n\n"
+        "Que tal renovar agora e voltar a receber os melhores momentos automaticamente?"
+    )
+    botoes_padrao = [
+        [InlineKeyboardButton("📚 Como funciona", callback_data="menu_1")],
+        [InlineKeyboardButton("💸 Ver planos", callback_data="menu_2")],
+    ]
+    botoes_padrao.append(botao_suporte)
+
+    handlers = {
+        1: (texto_padrao_novo_usuario, botoes_padrao),
+        4: (texto_expirado, botoes_padrao),
+    }
+
+    if nivel in handlers:
+        texto, botoes = handlers[nivel]
+    elif nivel == 2:
+        config_completa = is_configuracao_completa(telegram_id)
+        config = buscar_configuracao_canal(telegram_id)
+        link_do_canal = config.get("link_canal_telegram") if config else "#"
+
+        texto = f"😎 E aí {nome}, o que vamos fazer hoje meu assinante favorito?\n\nSeu Clipador tá no pique pra caçar os melhores momentos das lives 🎯🔥"
+        if config_completa:
+            botoes = [
+                [InlineKeyboardButton("⚙️ Gerenciar Canal", callback_data="abrir_menu_gerenciar_canal")],
+                [InlineKeyboardButton("📋 Ver plano atual", callback_data="ver_plano_atual")],
+                [InlineKeyboardButton("📣 Abrir meu canal", url=link_do_canal)],
+            ]
+            botoes.append(botao_suporte)
+        else:
+            botoes = [
+                [InlineKeyboardButton("🚨 Finalizar Configuração do Canal", callback_data="abrir_configurar_canal")],
+                [InlineKeyboardButton("📋 Ver plano atual", callback_data="ver_plano_atual")],
+            ]
+            botoes.append(botao_suporte)
+    else:
+        texto, botoes = handlers[1]
+
+    # Determina se envia uma nova mensagem ou edita uma existente
+    if update.message:
+        await update.message.reply_text(
+            text=texto,
+            reply_markup=InlineKeyboardMarkup(botoes),
+            parse_mode="Markdown"
+        )
+    elif update.callback_query:
+        # Evita editar a mensagem do aviso do canal gratuito
+        if context.user_data.get('aviso_enviado_agora'):
+            await update.callback_query.message.reply_text(
+                text=texto,
+                reply_markup=InlineKeyboardMarkup(botoes),
+                parse_mode="Markdown"
+            )
+            context.user_data['aviso_enviado_agora'] = False
+        else:
+            await update.callback_query.answer()
+            await update.callback_query.edit_message_text(
+                text=texto,
+                reply_markup=InlineKeyboardMarkup(botoes),
+                parse_mode="Markdown"
+            )
+
+async def responder_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler para o comando /start. Mostra o menu principal e um aviso para entrar no canal gratuito."""
+    user = update.effective_user
+    telegram_id = user.id
+    
+    adicionar_usuario(telegram_id, user.full_name)
+
+    if not verificar_aviso_enviado(telegram_id):
+        try:
+            await context.bot.get_chat_member(chat_id=CANAL_GRATUITO_ID, user_id=telegram_id)
+            marcar_aviso_enviado(telegram_id)
+        except telegram_error.BadRequest as e:
+            if "user not found" in e.message.lower():
+                texto_aviso = "👋 Olá! Antes de começarmos, que tal entrar no nosso canal gratuito?\n\nLá você fica por dentro de todas as novidades, atualizações e ainda vê o bot em ação com os clipes mais quentes do momento! 🔥"
+                botoes_aviso = [[InlineKeyboardButton("🚀 Entrar no Canal Gratuito", url=LINK_CANAL_GRATUITO)]]
+                await context.bot.send_message(chat_id=telegram_id, text=texto_aviso, reply_markup=InlineKeyboardMarkup(botoes_aviso))
+                marcar_aviso_enviado(telegram_id)
+                context.user_data['aviso_enviado_agora'] = True
+                await asyncio.sleep(1)
+            else:
+                marcar_aviso_enviado(telegram_id)
+                logger.warning(f"Erro de BadRequest não esperado ao verificar membro do canal gratuito para {telegram_id}: {e}")
+        except Exception as e:
+            marcar_aviso_enviado(telegram_id)
+            logger.error(f"Erro inesperado ao verificar membro do canal gratuito para {telegram_id}: {e}")
+
+    await exibir_menu_principal(update, context)
 
 # Redirecionador manual para o menu
 async def verificar_callback_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):

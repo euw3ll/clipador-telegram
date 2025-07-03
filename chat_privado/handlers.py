@@ -1,7 +1,6 @@
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 
 # Importar handlers dos menus
-from .menus.menu_inicial import responder_inicio
 from .menus.menu_callback import (
     responder_menu_1,
     responder_menu_2,
@@ -17,7 +16,7 @@ from .menus.menu_pagamento import (
     responder_menu_5_plus,
     responder_menu_5_anual,
 )
-from .menus.menu_configurar_canal import configurar_canal_conversa
+from .menus.menu_configurar_canal import configurar_canal_conversa, responder_inicio
 from .menus.menu_gerenciamento import (
     gerenciar_streamers_conversa,
     configurar_manual_conversa,

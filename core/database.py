@@ -27,7 +27,8 @@ def criar_tabelas():
             plano_assinado TEXT DEFAULT NULL,
             configuracao_finalizada INTEGER DEFAULT 0,
             data_expiracao TIMESTAMP,
-            status_canal TEXT DEFAULT 'ativo' -- Ex: ativo, removido, desativado
+            status_canal TEXT DEFAULT 'ativo', -- Ex: ativo, removido, desativado
+            aviso_canal_gratuito_enviado INTEGER DEFAULT 0 -- 0 para não enviado, 1 para enviado
         )
     """)
 
@@ -339,11 +340,38 @@ def migrar_tabelas():
                 cursor.execute(f"ALTER TABLE configuracoes_canal ADD COLUMN {nome_coluna} {tipo_coluna}")
                 logger.info(f"Migração: Coluna '{nome_coluna}' adicionada à tabela 'configuracoes_canal'.")
         
+        # Migração para a tabela usuarios
+        cursor.execute("PRAGMA table_info(usuarios)")
+        colunas_usuarios = [col[1] for col in cursor.fetchall()]
+
+        coluna_aviso = "aviso_canal_gratuito_enviado"
+        if coluna_aviso not in colunas_usuarios:
+            cursor.execute(f"ALTER TABLE usuarios ADD COLUMN {coluna_aviso} INTEGER DEFAULT 0")
+            logger.info(f"Migração: Coluna '{coluna_aviso}' adicionada à tabela 'usuarios'.")
+
         conn.commit()
     except sqlite3.Error as e:
         logger.error(f"Erro durante a migração do banco de dados: {e}")
     finally:
         conn.close()
+
+def marcar_aviso_enviado(telegram_id: int):
+    """Marca que o aviso do canal gratuito foi enviado para o usuário."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET aviso_canal_gratuito_enviado = 1 WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+
+def verificar_aviso_enviado(telegram_id: int) -> bool:
+    """Verifica se o aviso do canal gratuito já foi enviado para o usuário."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT aviso_canal_gratuito_enviado FROM usuarios WHERE telegram_id = ?", (telegram_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+    # Retorna True se o valor for 1, False caso contrário (0, NULL, ou se o usuário não existir)
+    return resultado and resultado[0] == 1
 
 
 # Certifique-se de criar as tabelas ao iniciar o projeto
