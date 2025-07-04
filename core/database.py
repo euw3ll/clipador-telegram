@@ -2,6 +2,7 @@ import sqlite3
 import os
 import logging
 
+from typing import Optional
 from core.telethon_criar_canal import deletar_canal_telegram
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,8 @@ def criar_tabelas():
             configuracao_finalizada INTEGER DEFAULT 0,
             data_expiracao TIMESTAMP,
             status_canal TEXT DEFAULT 'ativo', -- Ex: ativo, removido, desativado
-            aviso_canal_gratuito_enviado INTEGER DEFAULT 0 -- 0 para não enviado, 1 para enviado
+            aviso_canal_gratuito_enviado INTEGER DEFAULT 0, -- 0 para não enviado, 1 para enviado
+            ultimo_aviso_expiracao INTEGER DEFAULT NULL -- 7, 3, 1, 0 (dias do aviso enviado)
         )
     """)
 
@@ -67,6 +69,25 @@ def criar_tabelas():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS status_streamers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER NOT NULL,
+            streamer_id TEXT NOT NULL,
+            status TEXT NOT NULL, -- 'online' ou 'offline'
+            ultima_verificacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(telegram_id, streamer_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notificacoes_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER UNIQUE NOT NULL,
+            notificar_online INTEGER DEFAULT 1, -- 1 para True, 0 para False
+            FOREIGN KEY (telegram_id) REFERENCES usuarios (telegram_id)
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -240,7 +261,8 @@ def vincular_compra_e_ativar_usuario(telegram_id: int, email: str, plano: str, s
             plano_assinado = ?,
             nivel = 2, -- Nível 2 para assinante ativo
             data_expiracao = ?,
-            status_canal = 'ativo'
+            status_canal = 'ativo',
+            ultimo_aviso_expiracao = NULL -- Reseta o ciclo de avisos
         WHERE telegram_id = ?
     """, (status, plano, data_expiracao, telegram_id))
 
@@ -314,8 +336,8 @@ def atualizar_data_expiracao(email: str, nova_data: 'datetime'):
     """Atualiza a data de expiração e reativa o usuário caso esteja com nível 4."""
     conn = conectar()
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE usuarios SET data_expiracao = ?, nivel = 2, status_canal = 'ativo' WHERE LOWER(email) = ?
+    cursor.execute(""" -- Reseta também o ciclo de avisos
+        UPDATE usuarios SET data_expiracao = ?, nivel = 2, status_canal = 'ativo', ultimo_aviso_expiracao = NULL WHERE LOWER(email) = ?
     """, (nova_data, email.lower()))
     conn.commit()
     conn.close()
@@ -350,6 +372,12 @@ def migrar_tabelas():
         if coluna_aviso not in colunas_usuarios:
             cursor.execute(f"ALTER TABLE usuarios ADD COLUMN {coluna_aviso} INTEGER DEFAULT 0")
             logger.info(f"Migração: Coluna '{coluna_aviso}' adicionada à tabela 'usuarios'.")
+
+        coluna_expiracao = "ultimo_aviso_expiracao"
+        if coluna_expiracao not in colunas_usuarios:
+            cursor.execute(f"ALTER TABLE usuarios ADD COLUMN {coluna_expiracao} INTEGER DEFAULT NULL")
+            logger.info(f"Migração: Coluna '{coluna_expiracao}' adicionada à tabela 'usuarios'.")
+
 
         conn.commit()
     except sqlite3.Error as e:
@@ -968,8 +996,8 @@ def conceder_plano_usuario(telegram_id: int, plano: str, dias: int):
     # 2. Atualiza os dados do usuário
     cursor.execute("""
         UPDATE usuarios SET
-            plano_assinado = ?, nivel = 2, data_expiracao = ?,
-            status_pagamento = 'approved_admin', status_canal = 'ativo'
+            plano_assinado = ?, nivel = 2, data_expiracao = ?, ultimo_aviso_expiracao = NULL,
+            status_pagamento = 'approved_admin', status_canal = 'ativo' -- Reseta o ciclo de avisos
         WHERE telegram_id = ?
     """, (plano, data_expiracao, telegram_id))
 
@@ -1002,6 +1030,77 @@ def conceder_plano_usuario(telegram_id: int, plano: str, dias: int):
     conn.close()
     logger.info(f"Plano '{plano}' concedido ao usuário {telegram_id} por {dias} dias via admin.")
 
+def obter_ou_criar_config_notificacao(telegram_id: int) -> dict:
+    """Busca a configuração de notificação de um usuário. Se não existir, cria uma com valores padrão."""
+    conn = conectar()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # Tenta buscar a configuração
+    cursor.execute("SELECT * FROM notificacoes_config WHERE telegram_id = ?", (telegram_id,))
+    config = cursor.fetchone()
+    
+    if config:
+        conn.close()
+        return dict(config)
+    else:
+        # Se não existir, cria com os padrões (ativado)
+        cursor.execute("""
+            INSERT INTO notificacoes_config (telegram_id, notificar_online)
+            VALUES (?, 1)
+        """, (telegram_id,))
+        conn.commit()
+        
+        # Busca novamente para retornar o registro recém-criado
+        cursor.execute("SELECT * FROM notificacoes_config WHERE telegram_id = ?", (telegram_id,))
+        nova_config = cursor.fetchone()
+        conn.close()
+        return dict(nova_config)
+
+def atualizar_config_notificacao(telegram_id: int, notificar_online: bool = None):
+    """Atualiza as configurações de notificação de um usuário."""
+    conn = conectar()
+    cursor = conn.cursor()
+
+    updates = []
+    params = []
+
+    if notificar_online is not None:
+        updates.append("notificar_online = ?")
+        params.append(1 if notificar_online else 0)
+
+    if not updates:
+        conn.close()
+        return
+
+    params.append(telegram_id)
+    query = f"UPDATE notificacoes_config SET {', '.join(updates)} WHERE telegram_id = ?"
+    
+    # Garante que a configuração exista antes de atualizar
+    obter_ou_criar_config_notificacao(telegram_id)
+    
+    cursor.execute(query, tuple(params))
+    conn.commit()
+    conn.close()
+    logger.info(f"Configuração de notificação atualizada para o usuário {telegram_id}.")
+
+def obter_status_streamer(telegram_id: int, streamer_id: str) -> Optional[str]:
+    """Obtém o último status conhecido de um streamer ('online' ou 'offline')."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT status FROM status_streamers WHERE telegram_id = ? AND streamer_id = ?", (telegram_id, streamer_id))
+    resultado = cursor.fetchone()
+    conn.close()
+    return resultado[0] if resultado else None
+
+def atualizar_status_streamer(telegram_id: int, streamer_id: str, novo_status: str):
+    """Atualiza ou insere o status de um streamer."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO status_streamers (telegram_id, streamer_id, status) VALUES (?, ?, ?) ON CONFLICT(telegram_id, streamer_id) DO UPDATE SET status = excluded.status, ultima_verificacao = CURRENT_TIMESTAMP", (telegram_id, streamer_id, novo_status))
+    conn.commit()
+    conn.close()
+
 def obter_estatisticas_gerais():
     """Busca estatísticas gerais do bot."""
     conn = conectar()
@@ -1026,3 +1125,39 @@ def obter_estatisticas_gerais():
         "assinantes_ativos": assinantes_ativos,
         "canais_monitorados": canais_monitorados
     }
+
+def buscar_usuarios_para_notificar_expiracao():
+    """
+    Busca usuários cujas assinaturas estão próximas de expirar e que precisam ser notificados.
+    Retorna uma lista de dicionários, cada um contendo 'telegram_id' e 'dias_restantes'.
+    """
+    conn = conectar()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    # Usamos CAST(JULIANDAY(...) AS INTEGER) para arredondar para o dia mais próximo.
+    # A lógica no WHERE garante que só pegamos usuários que cruzaram um limiar (7, 3, 1, 0)
+    # e que o último aviso enviado foi para um limiar maior (ou nenhum aviso foi enviado).
+    cursor.execute("""
+        SELECT telegram_id, CAST(JULIANDAY(data_expiracao) - JULIANDAY('now', 'localtime') AS INTEGER) as dias_restantes
+        FROM usuarios
+        WHERE nivel = 2 AND data_expiracao IS NOT NULL AND (
+            (CAST(JULIANDAY(data_expiracao) - JULIANDAY('now', 'localtime') AS INTEGER) <= 7 AND (ultimo_aviso_expiracao IS NULL OR ultimo_aviso_expiracao > 7)) OR
+            (CAST(JULIANDAY(data_expiracao) - JULIANDAY('now', 'localtime') AS INTEGER) <= 3 AND (ultimo_aviso_expiracao IS NULL OR ultimo_aviso_expiracao > 3)) OR
+            (CAST(JULIANDAY(data_expiracao) - JULIANDAY('now', 'localtime') AS INTEGER) <= 1 AND (ultimo_aviso_expiracao IS NULL OR ultimo_aviso_expiracao > 1)) OR
+            (CAST(JULIANDAY(data_expiracao) - JULIANDAY('now', 'localtime') AS INTEGER) <= 0 AND (ultimo_aviso_expiracao IS NULL OR ultimo_aviso_expiracao > 0))
+        )
+    """)
+    
+    resultados = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in resultados]
+
+def atualizar_ultimo_aviso_expiracao(telegram_id: int, dias_aviso: int):
+    """Atualiza o campo ultimo_aviso_expiracao para um usuário."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET ultimo_aviso_expiracao = ? WHERE telegram_id = ?", (dias_aviso, telegram_id))
+    conn.commit()
+    conn.close()
+    logger.info(f"Aviso de expiração de {dias_aviso} dias atualizado para o usuário {telegram_id}.")

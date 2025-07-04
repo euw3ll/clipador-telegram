@@ -1,7 +1,6 @@
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from telegram.ext import Application
 from telegram.request import HTTPXRequest
 from core.ambiente import TELEGRAM_BOT_TOKEN

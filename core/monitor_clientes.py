@@ -3,7 +3,7 @@ import time
 from typing import TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
 import logging
-import requests
+import requests 
 from telegram import error as telegram_error
 
 from core.database import (
@@ -12,6 +12,13 @@ from core.database import (
     verificar_grupo_ja_enviado,
     registrar_clipe_chefe_enviado,
     verificar_clipe_chefe_ja_enviado,
+    obter_status_streamer,
+    atualizar_status_streamer,
+    obter_ou_criar_config_notificacao,
+    buscar_usuarios_para_notificar_expiracao,
+    atualizar_ultimo_aviso_expiracao,
+    desativar_assinatura_por_email,
+    buscar_usuario_por_id,
 )
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 from canal_gratuito.core.monitor import ( # Reutilizando funções e o dicionário de modos
@@ -27,6 +34,66 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from telegram.ext import Application
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+async def verificar_expiracoes_assinaturas(application: "Application"):
+    """Verifica assinaturas próximas da expiração e envia lembretes."""
+    logger.info("⏳ Verificando expiração de assinaturas...")
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup # Importação local
+    usuarios_a_notificar = buscar_usuarios_para_notificar_expiracao()
+    
+    botao_renovar = InlineKeyboardButton("💸 Renovar Assinatura", callback_data="menu_2")
+    keyboard = InlineKeyboardMarkup([[botao_renovar]])
+
+    for usuario in usuarios_a_notificar:
+        telegram_id = usuario['telegram_id']
+        dias_restantes = usuario['dias_restantes']
+        mensagem = ""
+        dias_aviso = -1 # Valor sentinela
+
+        if dias_restantes <= 0:
+            dias_aviso = 0
+            mensagem = (
+                "🔴 *Sua assinatura expirou!* 🔴\n\n"
+                "Seu acesso foi desativado. Para voltar a receber os melhores clipes, "
+                "renove sua assinatura agora mesmo."
+            )
+        elif dias_restantes <= 1:
+            dias_aviso = 1
+            mensagem = (
+                "⚠️ *Atenção: Sua assinatura expira em 1 dia!* ⚠️\n\n"
+                "Não perca o acesso ao seu canal de clipes. Renove agora para continuar "
+                "recebendo os melhores momentos das lives sem interrupção."
+            )
+        elif dias_restantes <= 3:
+            dias_aviso = 3
+            mensagem = (
+                "🔔 *Lembrete: Sua assinatura expira em 3 dias!* 🔔\n\n"
+                "Garanta que seu canal continue ativo. Renove sua assinatura para não "
+                "perder nenhum clipe viral."
+            )
+        elif dias_restantes <= 7:
+            dias_aviso = 7
+            mensagem = (
+                "👋 Olá! Sua assinatura do Clipador expira em 7 dias.\n\n"
+                "Para garantir que você não perca o acesso, você já pode renovar seu plano."
+            )
+        
+        if mensagem and dias_aviso != -1:
+            try:
+                await application.bot.send_message(chat_id=telegram_id, text=mensagem, parse_mode="Markdown", reply_markup=keyboard)
+                logger.info(f"✅ Lembrete de expiração ({dias_aviso} dias) enviado para o usuário {telegram_id}.")
+                atualizar_ultimo_aviso_expiracao(telegram_id, dias_aviso)
+
+                if dias_aviso == 0:
+                    user_data = buscar_usuario_por_id(telegram_id)
+                    if user_data and user_data.get('email'):
+                        desativar_assinatura_por_email(user_data['email'], 'expirado')
+                        logger.info(f"🔴 Assinatura do usuário {telegram_id} expirou e foi desativada.")
+                    else:
+                        logger.warning(f"Não foi possível desativar a assinatura do {telegram_id} pois não foi encontrado um e-mail associado.")
+            except telegram_error.TelegramError as e:
+                logger.error(f"❌ Falha ao enviar lembrete de expiração para {telegram_id}: {e}")
 
 # Intervalo de monitoramento para cada cliente (em segundos)
 INTERVALO_MONITORAMENTO_CLIENTE = 60 # A cada 60 segundos, verifica novos clipes
@@ -90,8 +157,42 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
         # Correção: buscar clipes retroativos de INTERVALO_ANALISE_MINUTOS_CLIENTE minutos
         tempo_inicio = get_time_minutes_ago(minutes=INTERVALO_ANALISE_MINUTOS_CLIENTE)
 
+        # Busca a configuração de notificação do cliente uma vez
+        config_notificacao = obter_ou_criar_config_notificacao(telegram_id)
+        notificar_online_status = config_notificacao.get('notificar_online', 1) == 1
+
         for streamer_id, display_name in streamers_ids.items():
             logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Buscando clipes de @{display_name}...")
+
+            # --- LÓGICA DE NOTIFICAÇÃO "STREAMER ONLINE" ---
+            # Busca o status da stream no início do loop para reutilização
+            stream = twitch.get_stream_info(streamer_id)
+            requests_count += 1
+
+            status_atual = 'online' if stream else 'offline'
+            status_anterior = obter_status_streamer(telegram_id, streamer_id)
+
+            # Se o status mudou, atualiza no banco de dados
+            if status_atual != status_anterior:
+                atualizar_status_streamer(telegram_id, streamer_id, status_atual)
+                logger.info(f"🔄 [Status Change] @{display_name} mudou para {status_atual} para o cliente {telegram_id}.")
+
+                # Se o streamer ficou online e as notificações estão ativas, envia o aviso
+                if status_atual == 'online' and notificar_online_status:
+                    try:
+                        stream_title = stream.get('title', 'Sem título')
+                        stream_game = stream.get('game_name', 'Não especificado')
+                        stream_url = f"https://twitch.tv/{display_name}"
+                        mensagem_online = (
+                            f"🟢 <b>@{display_name} está AO VIVO!</b>\n\n"
+                            f"📝 {stream_title}\n"
+                            f"🎮 Jogando: {stream_game}\n\n"
+                            f"{stream_url}"
+                        )
+                        await application.bot.send_message(chat_id=id_canal_telegram, text=mensagem_online, parse_mode="HTML")
+                        logger.info(f"✅ [Notificação Online] Enviada para o canal do cliente {telegram_id} sobre @{display_name}.")
+                    except telegram_error.TelegramError as e:
+                        logger.error(f"❌ Erro de Telegram ao enviar notificação online para o canal do cliente {telegram_id}: {e}")
 
             clipes = twitch.get_recent_clips(streamer_id, started_at=tempo_inicio)
             requests_count += 1
@@ -128,9 +229,7 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
             # --- LÓGICA DE DETECÇÃO AUTOMÁTICA ---
             # A lógica de detecção automática só roda se o modo parceiro permitir.
             if modo_parceiro in ['somente_bot', 'chefe_e_bot']:
-                stream = twitch.get_stream_info(streamer_id)
-                requests_count += 1
-
+                # A variável 'stream' já foi obtida no início do loop
                 is_vod_session = not stream and clipes
 
                 # Define os critérios com base no modo e se é VOD ou não
@@ -234,12 +333,23 @@ async def iniciar_monitoramento_clientes(application: "Application"):
     # Dicionário para manter as tarefas de monitoramento ativas por telegram_id
     tarefas_ativas = {}
     
-    # Controle de tempo para a rotina de limpeza periódica
+    # Controles de tempo para rotinas periódicas
     ultima_limpeza = datetime.now()
     INTERVALO_LIMPEZA_HORAS = 24
+    ultima_verificacao_expiracao = datetime.now()
+    INTERVALO_VERIFICACAO_EXPIRACAO_HORAS = 4 # A cada 4 horas
 
     while True:
-        # --- Rotina de Limpeza Periódica (executada em background) ---
+        # --- Rotina de Verificação de Expirações ---
+        if datetime.now() - ultima_verificacao_expiracao > timedelta(hours=INTERVALO_VERIFICACAO_EXPIRACAO_HORAS):
+            logger.info("Disparando rotina de verificação de expirações...")
+            try:
+                await verificar_expiracoes_assinaturas(application)
+            except Exception as e:
+                logger.error(f"Erro inesperado na rotina de verificação de expirações: {e}", exc_info=True)
+            ultima_verificacao_expiracao = datetime.now()
+
+        # --- Rotina de Limpeza Periódica ---
         if datetime.now() - ultima_limpeza > timedelta(hours=INTERVALO_LIMPEZA_HORAS):
             logger.info("Disparando rotina de limpeza em background...")
             # Executa a função síncrona de limpeza em uma thread separada para não bloquear o loop de eventos

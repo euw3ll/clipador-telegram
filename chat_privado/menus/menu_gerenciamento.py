@@ -105,6 +105,7 @@ async def abrir_menu_gerenciar_canal(update: Update, context: ContextTypes.DEFAU
     botoes = [
         [InlineKeyboardButton("🧠 Alterar Modo de Monitoramento", callback_data="gerenciar_modo")],
         [InlineKeyboardButton("📺 Gerenciar Streamers", callback_data="gerenciar_streamers")],
+        [InlineKeyboardButton("🔔 Gerenciar Notificações", callback_data="abrir_menu_notificacoes")],
         [InlineKeyboardButton("➕ Comprar Slot de Streamer", callback_data="comprar_slot_extra")],
         [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
     ]

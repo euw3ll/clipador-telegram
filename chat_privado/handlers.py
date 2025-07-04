@@ -27,6 +27,10 @@ from .menus.menu_gerenciamento import (
     salvar_novo_modo,
     placeholder_callback,
 )
+from .menus.menu_notificacoes import (
+    abrir_menu_notificacoes,
+    toggle_notificacao,
+)
 from .admin_commands import (
     admin_command,
     reset_user_command,
@@ -90,3 +94,7 @@ def registrar_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(abrir_menu_alterar_modo, pattern="^gerenciar_modo$"))
     app.add_handler(CallbackQueryHandler(salvar_novo_modo, pattern="^novo_modo_"))
     app.add_handler(CallbackQueryHandler(placeholder_callback, pattern="^placeholder_callback$"))
+
+    # Handlers do menu de notificações
+    app.add_handler(CallbackQueryHandler(abrir_menu_notificacoes, pattern="^abrir_menu_notificacoes$"))
+    app.add_handler(CallbackQueryHandler(toggle_notificacao, pattern="^toggle_notificacao_"))
