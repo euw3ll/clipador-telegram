@@ -127,8 +127,7 @@ async def comprar_slot_extra(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "Adicione um novo streamer para monitorar em seu canal!\n\n"
         f"💰 *Valor:* R${preco_slot:.2f}\n"
         "💳 *Pagamento:* Único (não é uma assinatura)\n\n"
-        "Clique no botão abaixo para ir para a página de pagamento. "
-        "Após a confirmação, seu novo slot será liberado automaticamente."
+        "Clique no link de pagamento e, após concluir, clique em *'Já Paguei'* abaixo."
     )
 
     link_pagamento = KIRVANO_LINKS.get("Slot Extra")
@@ -141,7 +140,7 @@ async def comprar_slot_extra(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     botoes = [
         [InlineKeyboardButton(f"💳 Pagar R${preco_slot:.2f}", url=link_pagamento)],
-        [InlineKeyboardButton("✅ Já paguei", callback_data="menu_6")],
+        [InlineKeyboardButton("✅ Já Paguei", callback_data="verificar_compra_slot")],
         [InlineKeyboardButton("🔙 Voltar", callback_data="abrir_menu_gerenciar_canal")]
     ]
 

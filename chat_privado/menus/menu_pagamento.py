@@ -41,8 +41,9 @@ from core.database import (
     registrar_log_pagamento, # Adicionado importação
     vincular_email_usuario,
     vincular_compra_e_ativar_usuario, # Nova função para ativar usuário e vincular compra
-    adicionar_slot_extra
-)
+    adicionar_slot_extra,
+    buscar_usuario_por_id, # Adicionado para buscar e-mail do usuário
+) 
 from io import BytesIO
 from chat_privado.menus.menu_configurar_canal import cancelar_e_iniciar # Importa a nova função de fallback
 import logging
@@ -247,6 +248,37 @@ async def pular_pagamento_admin(update: Update, context: ContextTypes.DEFAULT_TY
         [[InlineKeyboardButton("⚙️ Continuar configuração", callback_data="abrir_configurar_canal")]]
     )
     return ConversationHandler.END
+
+async def verificar_compra_slot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Callback para o botão 'Já Paguei' de um slot extra.
+    Busca o e-mail cadastrado do usuário e inicia a verificação do pagamento.
+    """
+    query = update.callback_query
+    await query.answer("Verificando sua compra...")
+    telegram_id = update.effective_user.id
+
+    usuario = buscar_usuario_por_id(telegram_id)
+    email_cadastrado = usuario.get('email') if usuario else None
+
+    if not email_cadastrado:
+        await query.edit_message_text(
+            "❌ Não encontramos um e-mail cadastrado na sua conta. "
+            "Para comprar um slot extra, você precisa primeiro ter uma assinatura ativa.\n\n"
+            "Se acredita que isso é um erro, entre em contato com o suporte.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar", callback_data="abrir_menu_gerenciar_canal")]])
+        )
+        return
+
+    # Passa o e-mail para a função `receber_email` através do context.args
+    # e chama a função diretamente.
+    context.args = [email_cadastrado]
+    # Como a função `receber_email` espera uma mensagem, vamos simular uma
+    # para que ela possa responder. Usamos a mensagem do query.
+    update.message = query.message
+    # A função `receber_email` não está em uma ConversationHandler aqui,
+    # então o `return ConversationHandler.END` será ignorado, o que é o comportamento desejado.
+    await receber_email(update, context)
 
 async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Recebe e-mail do usuário ou usa o e-mail já registrado (compra de slot extra)."""
