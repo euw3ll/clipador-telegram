@@ -232,35 +232,33 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
                 # A variável 'stream' já foi obtida no início do loop
                 is_vod_session = not stream and clipes
 
-                # Define os critérios com base no modo e se é VOD ou não
+                # Define o critério de agrupamento (pode ser um número ou uma função)
+                criterio_agrupamento = None
+
                 if modo_monitoramento == "MANUAL":
                     intervalo_agrupamento = config_cliente.get('manual_interval_sec', 60)
                     minimo_clipes_ao_vivo = config_cliente.get('manual_min_clips', 3)
                     if is_vod_session:
                         logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Streamer @{display_name} offline. Usando critério de VOD (Manual).")
-                        # Usa o valor de VOD se existir (e não for 0), senão, usa o valor de clipes ao vivo como fallback.
-                        minimo_clipes = config_cliente.get('manual_min_clips_vod') or minimo_clipes_ao_vivo
+                        criterio_agrupamento = config_cliente.get('manual_min_clips_vod') or minimo_clipes_ao_vivo
                     else:
-                        minimo_clipes = minimo_clipes_ao_vivo
+                        criterio_agrupamento = minimo_clipes_ao_vivo
+                    logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Critério para @{display_name}: {criterio_agrupamento} clipes em {intervalo_agrupamento}s.")
+                
+                elif modo_monitoramento == "AUTOMATICO":
+                    config_modo = MODOS_MONITORAMENTO.get(modo_monitoramento, MODOS_MONITORAMENTO["MODO_PADRAO"])
+                    intervalo_agrupamento = config_modo["intervalo_segundos"]
+                    # O critério é a própria função, que usa o viewer_count do clipe. Funciona para live e VOD.
+                    criterio_agrupamento = minimo_clipes_por_viewers
+                    logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Critério para @{display_name}: Dinâmico (Automático) em {intervalo_agrupamento}s.")
+
                 else: # Lógica para modos predefinidos (Automático, Padrão, etc.)
                     config_modo = MODOS_MONITORAMENTO.get(modo_monitoramento, MODOS_MONITORAMENTO["MODO_PADRAO"])
                     intervalo_agrupamento = config_modo["intervalo_segundos"]
+                    criterio_agrupamento = config_modo.get("min_clipes", 3)
+                    logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Critério para @{display_name}: {criterio_agrupamento} clipes em {intervalo_agrupamento}s.")
 
-                    if is_vod_session:
-                        logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Streamer @{display_name} offline. Usando critério de VOD ({modo_monitoramento}).")
-                        # Para VOD, o modo AUTOMATICO se comporta como o PADRAO.
-                        # Os outros modos (Louco, Cirurgico) usam seus próprios min_clipes.
-                        minimo_clipes = config_modo.get("min_clipes", 3)
-                    else: # Lógica para live
-                        if modo_monitoramento == "AUTOMATICO":
-                            viewers = stream["viewer_count"] if stream else 0
-                            minimo_clipes = minimo_clipes_por_viewers(viewers)
-                        else:
-                            # Para outros modos (Louco, Padrão, Cirúrgico), usa o valor fixo do modo
-                            minimo_clipes = config_modo.get("min_clipes", 3) # Fallback para 3
-
-                logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Critério para @{display_name}: {minimo_clipes} clipes em {intervalo_agrupamento}s.")
-                virais = agrupar_clipes_por_proximidade(clipes, intervalo_agrupamento, minimo_clipes)
+                virais = agrupar_clipes_por_proximidade(clipes, intervalo_agrupamento, criterio_agrupamento)
 
                 for grupo in virais:
                     inicio = grupo["inicio"]

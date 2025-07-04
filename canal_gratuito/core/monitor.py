@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 MODOS_MONITORAMENTO = {
     "MODO_LOUCO": {"min_clipes": 2, "intervalo_segundos": 150},
     "MODO_PADRAO": {"min_clipes": 3, "intervalo_segundos": 90},
-    "MODO_CIRURGICO": {"min_clipes": 5, "intervalo_segundos": 45},
+    "MODO_CIRURGICO": {"min_clipes": 5, "intervalo_segundos": 60},
     # MODO_AUTOMATICO usará o padrão
     "AUTOMATICO": {"min_clipes": 3, "intervalo_segundos": 90},
 }
