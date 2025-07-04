@@ -30,7 +30,8 @@ def criar_tabelas():
             data_expiracao TIMESTAMP,
             status_canal TEXT DEFAULT 'ativo', -- Ex: ativo, removido, desativado
             aviso_canal_gratuito_enviado INTEGER DEFAULT 0, -- 0 para não enviado, 1 para enviado
-            ultimo_aviso_expiracao INTEGER DEFAULT NULL -- 7, 3, 1, 0 (dias do aviso enviado)
+            ultimo_aviso_expiracao INTEGER DEFAULT NULL, -- 7, 3, 1, 0 (dias do aviso enviado)
+            usou_teste_gratuito INTEGER DEFAULT 0 -- 0 para não, 1 para sim
         )
     """)
 
@@ -98,15 +99,7 @@ def salvar_configuracao_canal_completa(telegram_id, twitch_client_id, twitch_cli
 
     # Define a quantidade de slots com base no plano do usuário
     plano = obter_plano_usuario(telegram_id)
-    slots_iniciais = 1
-    if plano == "Mensal Plus":
-        slots_iniciais = 3
-    elif plano == "Anual Pro":
-        slots_iniciais = 4  # 3 do plano + 1 de bônus
-    elif plano == "PARCEIRO":
-        slots_iniciais = 1  # Plano para parceiros
-    elif plano == "SUPER":
-        slots_iniciais = 999 # Plano de admin sem limites
+    slots_iniciais = obter_slots_base_plano(plano)
 
     # Verifica se já existe uma configuração para este usuário
     cursor.execute("SELECT * FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
@@ -235,9 +228,17 @@ def vincular_compra_e_ativar_usuario(telegram_id: int, email: str, plano: str, s
     Esta função deve ser chamada pelo bot, não pelo webhook.
     """
     from datetime import datetime, timedelta
+    from configuracoes import TESTE_GRATUITO_DURACAO_DIAS # Importa a duração
 
     conn = conectar()
     cursor = conn.cursor()
+
+    # NOVO: Verifica se o usuário já usou o teste gratuito
+    if plano == "Teste Gratuito":
+        if usuario_ja_usou_teste(telegram_id):
+            conn.close()
+            # Lança uma exceção para ser tratada na camada superior (menu_pagamento)
+            raise ValueError("Você já utilizou o período de teste gratuito.")
 
     # 1. Vincula o telegram_id à compra na tabela 'compras' se ainda não estiver vinculado
     # Isso é importante para compras que chegam via webhook antes do usuário informar o e-mail
@@ -252,6 +253,8 @@ def vincular_compra_e_ativar_usuario(telegram_id: int, email: str, plano: str, s
     # 3. Calcula a data de expiração e atualiza o status do usuário
     if "Anual" in plano:
         data_expiracao = datetime.now() + timedelta(days=365)
+    elif plano == "Teste Gratuito":
+        data_expiracao = datetime.now() + timedelta(days=TESTE_GRATUITO_DURACAO_DIAS)
     else:  # Assume mensal para todos os outros
         data_expiracao = datetime.now() + timedelta(days=31) # 31 para dar uma margem
 
@@ -265,6 +268,10 @@ def vincular_compra_e_ativar_usuario(telegram_id: int, email: str, plano: str, s
             ultimo_aviso_expiracao = NULL -- Reseta o ciclo de avisos
         WHERE telegram_id = ?
     """, (status, plano, data_expiracao, telegram_id))
+
+    # Se for o teste gratuito, marca como usado
+    if plano == "Teste Gratuito":
+        cursor.execute("UPDATE usuarios SET usou_teste_gratuito = 1 WHERE telegram_id = ?", (telegram_id,))
 
     conn.commit()
     conn.close()
@@ -332,6 +339,42 @@ def desativar_assinatura_por_email(email: str, novo_status: str = 'expirado'):
     
     return telegram_id
 
+async def revogar_acesso_teste_expirado(telegram_id: int):
+    """
+    Revoga completamente o acesso de um usuário de teste gratuito expirado.
+    - Deleta o canal do Telegram associado.
+    - Remove a configuração do canal do banco de dados.
+    - Reseta o status do usuário para 'expirado'.
+    """
+    logger.info(f"Iniciando revogação de acesso de teste para o usuário {telegram_id}.")
+    
+    # 1. Buscar e deletar o canal do Telegram
+    config = buscar_configuracao_canal(telegram_id)
+    if config and config.get('id_canal_telegram'):
+        try:
+            id_canal = int(config['id_canal_telegram'])
+            await deletar_canal_telegram(id_canal)
+            logger.info(f"Canal do Telegram {id_canal} (teste expirado) para o usuário {telegram_id} deletado.")
+        except Exception as e:
+            logger.error(f"Erro ao deletar canal de teste expirado {config.get('id_canal_telegram')} para {telegram_id}: {e}", exc_info=True)
+
+    # 2. Deletar a configuração e resetar o usuário em uma única transação
+    conn = conectar()
+    cursor = conn.cursor()
+    try:
+        # Deleta a configuração do canal
+        cursor.execute("DELETE FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
+        
+        # Atualiza o status do usuário para refletir a expiração do teste (Nível 4 = Expirado/Cancelado)
+        cursor.execute("""
+            UPDATE usuarios SET plano_assinado = NULL, nivel = 4, status_pagamento = 'trial_expired',
+            configuracao_finalizada = 0, data_expiracao = NULL, status_canal = 'removido' WHERE telegram_id = ?
+        """, (telegram_id,))
+        conn.commit()
+        logger.info(f"Configuração e status do usuário de teste {telegram_id} resetados no banco de dados.")
+    finally:
+        conn.close()
+
 def atualizar_data_expiracao(email: str, nova_data: 'datetime'):
     """Atualiza a data de expiração e reativa o usuário caso esteja com nível 4."""
     conn = conectar()
@@ -378,6 +421,11 @@ def migrar_tabelas():
             cursor.execute(f"ALTER TABLE usuarios ADD COLUMN {coluna_expiracao} INTEGER DEFAULT NULL")
             logger.info(f"Migração: Coluna '{coluna_expiracao}' adicionada à tabela 'usuarios'.")
 
+        coluna_teste_gratuito = "usou_teste_gratuito"
+        if coluna_teste_gratuito not in colunas_usuarios:
+            cursor.execute(f"ALTER TABLE usuarios ADD COLUMN {coluna_teste_gratuito} INTEGER DEFAULT 0")
+            logger.info(f"Migração: Coluna '{coluna_teste_gratuito}' adicionada à tabela 'usuarios'.")
+
 
         conn.commit()
     except sqlite3.Error as e:
@@ -402,6 +450,30 @@ def verificar_aviso_enviado(telegram_id: int) -> bool:
     conn.close()
     # Retorna True se o valor for 1, False caso contrário (0, NULL, ou se o usuário não existir)
     return resultado and resultado[0] == 1
+
+def usuario_ja_usou_teste(telegram_id: int) -> bool:
+    """Verifica se um usuário já ativou o teste gratuito."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("SELECT usou_teste_gratuito FROM usuarios WHERE telegram_id = ?", (telegram_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+    # Retorna True se o valor for 1, False caso contrário (0, NULL, ou se o usuário não existir)
+    return resultado and resultado[0] == 1
+
+def resetar_flag_teste_gratuito(telegram_id: int):
+    """Reseta a flag 'usou_teste_gratuito' para 0, permitindo que o usuário use o teste novamente."""
+    conn = conectar()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET usou_teste_gratuito = 0 WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    
+    if cursor.rowcount == 0:
+        conn.close()
+        raise ValueError(f"Usuário com ID {telegram_id} não encontrado.")
+    
+    conn.close()
+    logger.info(f"Flag de teste gratuito resetada para o usuário {telegram_id}.")
 
 
 # Certifique-se de criar as tabelas ao iniciar o projeto
@@ -582,15 +654,19 @@ def buscar_link_canal(telegram_id):
 
 def obter_slots_base_plano(plano: str) -> int:
     """Retorna a quantidade base de slots para um determinado plano."""
-    if plano == "Mensal Plus":
+    if plano == "Mensal Solo":
+        return 1
+    elif plano == "Mensal Plus":
         return 3
     elif plano == "Anual Pro":
         return 4  # 3 do plano + 1 de bônus
     elif plano == "PARCEIRO":
         return 1
+    elif plano == "Teste Gratuito":
+        return 1
     elif plano == "SUPER":
         return 999
-    return 1  # Padrão para Mensal Solo
+    return 1  # Padrão para planos não reconhecidos ou nulos
 
 def salvar_link_canal(telegram_id, id_canal, link_canal):
     conn = conectar()
@@ -626,15 +702,7 @@ def remover_slots_extras(telegram_id: int):
 
     # 1. Descobrir o plano do usuário para saber o valor base de slots
     plano = obter_plano_usuario(telegram_id)
-    slots_base = 1
-    if plano == "Mensal Plus":
-        slots_base = 3
-    elif plano == "Anual Pro":
-        slots_base = 4  # 3 do plano + 1 de bônus
-    elif plano == "PARCEIRO":
-        slots_base = 1
-    elif plano == "SUPER":
-        slots_base = 999
+    slots_base = obter_slots_base_plano(plano)
 
     # 2. Atualizar a tabela de configurações com o valor base
     cursor.execute("UPDATE configuracoes_canal SET slots_ativos = ? WHERE telegram_id = ?", (slots_base, telegram_id))
@@ -1002,26 +1070,14 @@ def conceder_plano_usuario(telegram_id: int, plano: str, dias: int):
     """, (plano, data_expiracao, telegram_id))
 
     # 3. Atualiza os slots na tabela de configuração, preservando slots extras
-    slots_base_novo = 1
-    if plano == "Mensal Plus": slots_base_novo = 3
-    elif plano == "Anual Pro": slots_base_novo = 4
-    elif plano == "PARCEIRO": slots_base_novo = 1
-    elif plano == "SUPER": slots_base_novo = 999
+    slots_base_novo = obter_slots_base_plano(plano)
     
     cursor.execute("SELECT slots_ativos FROM configuracoes_canal WHERE telegram_id = ?", (telegram_id,))
     config_result = cursor.fetchone()
     
     if config_result:
         slots_atuais = config_result[0]
-        slots_base_antigo = 1
-        if plano_antigo == "Mensal Plus":
-            slots_base_antigo = 3
-        elif plano_antigo == "Anual Pro":
-            slots_base_antigo = 4
-        elif plano_antigo == "PARCEIRO":
-            slots_base_antigo = 1
-        elif plano_antigo == "SUPER":
-            slots_base_antigo = 999
+        slots_base_antigo = obter_slots_base_plano(plano_antigo)
         slots_extras_comprados = max(0, slots_atuais - slots_base_antigo)
         novos_slots_totais = slots_base_novo + slots_extras_comprados
         cursor.execute("UPDATE configuracoes_canal SET slots_ativos = ? WHERE telegram_id = ?", (novos_slots_totais, telegram_id))

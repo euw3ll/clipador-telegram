@@ -19,6 +19,7 @@ from core.database import (
     atualizar_ultimo_aviso_expiracao,
     desativar_assinatura_por_email,
     buscar_usuario_por_id,
+    revogar_acesso_teste_expirado,
 )
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 from canal_gratuito.core.monitor import ( # Reutilizando funções e o dicionário de modos
@@ -48,36 +49,71 @@ async def verificar_expiracoes_assinaturas(application: "Application"):
     for usuario in usuarios_a_notificar:
         telegram_id = usuario['telegram_id']
         dias_restantes = usuario['dias_restantes']
+
+        # NOVO: Buscar dados completos do usuário para saber o plano
+        user_data = buscar_usuario_por_id(telegram_id)
+        if not user_data:
+            logger.warning(f"Usuário {telegram_id} para notificação de expiração não encontrado no DB. Pulando.")
+            continue
+        
+        plano = user_data.get('plano_assinado')
+        is_trial = plano == "Teste Gratuito"
+
         mensagem = ""
         dias_aviso = -1 # Valor sentinela
 
-        if dias_restantes <= 0:
-            dias_aviso = 0
-            mensagem = (
-                "🔴 *Sua assinatura expirou!* 🔴\n\n"
-                "Seu acesso foi desativado. Para voltar a receber os melhores clipes, "
-                "renove sua assinatura agora mesmo."
-            )
-        elif dias_restantes <= 1:
-            dias_aviso = 1
-            mensagem = (
-                "⚠️ *Atenção: Sua assinatura expira em 1 dia!* ⚠️\n\n"
-                "Não perca o acesso ao seu canal de clipes. Renove agora para continuar "
-                "recebendo os melhores momentos das lives sem interrupção."
-            )
-        elif dias_restantes <= 3:
-            dias_aviso = 3
-            mensagem = (
-                "🔔 *Lembrete: Sua assinatura expira em 3 dias!* 🔔\n\n"
-                "Garanta que seu canal continue ativo. Renove sua assinatura para não "
-                "perder nenhum clipe viral."
-            )
-        elif dias_restantes <= 7:
-            dias_aviso = 7
-            mensagem = (
-                "👋 Olá! Sua assinatura do Clipador expira em 7 dias.\n\n"
-                "Para garantir que você não perca o acesso, você já pode renovar seu plano."
-            )
+        # Lógica de mensagens para Teste Gratuito
+        if is_trial:
+            if dias_restantes <= 0:
+                dias_aviso = 0
+                mensagem = (
+                    "🔴 *Seu período de teste gratuito terminou!* 🔴\n\n"
+                    "Seu canal e suas configurações foram removidos. Para continuar usando o Clipador e criar um novo canal, "
+                    "assine um de nossos planos."
+                )
+            elif dias_restantes <= 1:
+                dias_aviso = 1
+                mensagem = (
+                    "⚠️ *Seu teste gratuito termina em menos de 24 horas!* ⚠️\n\n"
+                    "Não perca seu acesso! Assine agora para manter seu canal e continuar "
+                    "recebendo os melhores clipes sem interrupção."
+                )
+            elif dias_restantes <= 3:
+                dias_aviso = 3
+                mensagem = (
+                    "🔔 *Seu teste gratuito expira em 3 dias!* 🔔\n\n"
+                    "Gostou do que viu? Assine um de nossos planos para garantir que seu canal continue ativo "
+                    "após o período de teste."
+                )
+        # Lógica de mensagens para planos pagos (existente)
+        else:
+            if dias_restantes <= 0:
+                dias_aviso = 0
+                mensagem = (
+                    "🔴 *Sua assinatura expirou!* 🔴\n\n"
+                    "Seu acesso foi desativado. Para voltar a receber os melhores clipes, "
+                    "renove sua assinatura agora mesmo."
+                )
+            elif dias_restantes <= 1:
+                dias_aviso = 1
+                mensagem = (
+                    "⚠️ *Atenção: Sua assinatura expira em 1 dia!* ⚠️\n\n"
+                    "Não perca o acesso ao seu canal de clipes. Renove agora para continuar "
+                    "recebendo os melhores momentos das lives sem interrupção."
+                )
+            elif dias_restantes <= 3:
+                dias_aviso = 3
+                mensagem = (
+                    "🔔 *Lembrete: Sua assinatura expira em 3 dias!* 🔔\n\n"
+                    "Garanta que seu canal continue ativo. Renove sua assinatura para não "
+                    "perder nenhum clipe viral."
+                )
+            elif dias_restantes <= 7:
+                dias_aviso = 7
+                mensagem = (
+                    "👋 Olá! Sua assinatura do Clipador expira em 7 dias.\n\n"
+                    "Para garantir que você não perca o acesso, você já pode renovar seu plano."
+                )
         
         if mensagem and dias_aviso != -1:
             try:
@@ -86,8 +122,10 @@ async def verificar_expiracoes_assinaturas(application: "Application"):
                 atualizar_ultimo_aviso_expiracao(telegram_id, dias_aviso)
 
                 if dias_aviso == 0:
-                    user_data = buscar_usuario_por_id(telegram_id)
-                    if user_data and user_data.get('email'):
+                    if is_trial:
+                        await revogar_acesso_teste_expirado(telegram_id)
+                        logger.info(f"🔴 Teste gratuito do usuário {telegram_id} expirou. Acesso e canal removidos.")
+                    elif user_data.get('email'):
                         desativar_assinatura_por_email(user_data['email'], 'expirado')
                         logger.info(f"🔴 Assinatura do usuário {telegram_id} expirou e foi desativada.")
                     else:

@@ -4,9 +4,9 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from core.pagamento import consultar_pagamento
 from chat_privado.menus.menu_configurar_canal import menu_configurar_canal, responder_menu_7_configurar
-from core.database import atualizar_telegram_id_simples
+from core.database import atualizar_telegram_id_simples, usuario_ja_usou_teste
 from chat_privado.usuarios import get_nivel_usuario # Importar get_nivel_usuario
-from configuracoes import PLANOS_PRECOS
+from configuracoes import PLANOS_PRECOS, TESTE_GRATUITO_ATIVO
 from core.database import buscar_configuracao_canal
 
 from telegram.error import BadRequest
@@ -209,6 +209,12 @@ async def responder_menu_3(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("👑 Anual Pro", callback_data="menu_4_anual")],
         [InlineKeyboardButton("🔙 Voltar ao menu", callback_data="menu_0")]
     ]
+
+    # NOVO: Adiciona o botão de teste gratuito se as condições forem atendidas
+    telegram_id = update.effective_user.id
+    if TESTE_GRATUITO_ATIVO and not usuario_ja_usou_teste(telegram_id):
+        # Insere o botão de teste antes dos planos pagos
+        botoes.insert(0, [InlineKeyboardButton("⭐ Teste Gratuito (3 dias)", callback_data="menu_5_teste")])
 
     try:
         await query.edit_message_text(text=texto, reply_markup=InlineKeyboardMarkup(botoes), parse_mode=ParseMode.MARKDOWN)

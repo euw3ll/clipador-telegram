@@ -32,8 +32,13 @@ MODO_MANUTENCAO = False
 GATEWAY_PAGAMENTO = "KIRVANO"  # 'MERCADOPAGO' ou 'KIRVANO'
 SUPPORT_USERNAME = "euw3ll" # Usuário para o botão de suporte
 
+# --- NOVO: Configurações do Teste Gratuito ---
+TESTE_GRATUITO_ATIVO = True # True para ativar, False para desativar o botão
+TESTE_GRATUITO_DURACAO_DIAS = 3 # Duração do período de teste em dias
+
 # Links de pagamento da Kirvano
 KIRVANO_LINKS = {
+    "Teste Gratuito": "https://pay.kirvano.com/COLE_SEU_LINK_AQUI", # Link para o produto de R$0,00
     "Mensal Solo": "https://pay.kirvano.com/3f315c85-0164-4b55-81f2-6ffa661b670c",
     "Mensal Plus": "https://pay.kirvano.com/6283e70f-f385-4355-8cff-e02275935cde",
     "Anual Pro": "https://pay.kirvano.com/09287018-c006-4c0e-87c7-08a6e4464e79",
@@ -42,6 +47,7 @@ KIRVANO_LINKS = {
 
 # Preços dos planos e produtos
 PLANOS_PRECOS = {
+    "Teste Gratuito": 0.00,
     "Mensal Solo": 19.90,
     "Mensal Plus": 39.90,
     "Anual Pro": 199.00,

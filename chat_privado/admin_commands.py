@@ -19,6 +19,9 @@ from core.database import (
     obter_estatisticas_gerais,
     atualizar_streamers_monitorados,
     resetar_cooldown_streamers,
+    obter_plano_usuario,
+    revogar_acesso_teste_expirado,
+    resetar_flag_teste_gratuito,
 )
 from core.telethon_criar_canal import (
     deletar_canal_telegram,
@@ -62,7 +65,8 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👤 *Gerenciamento de Usuários*\n"
         "`/userinfo <id | me | email>` - Vê resumo do usuário.\n"
         "`/setplan <id | me> <Plano> [dias]` - Define um plano.\n"
-        "_(Planos: Mensal Solo, Mensal Plus, Anual Pro, SUPER, PARCEIRO)_\n"
+        "_(Planos: Teste Gratuito, Mensal Solo, Mensal Plus, Anual Pro, SUPER, PARCEIRO)_\n"
+        "`/trial <reset|revoke> <id>` - Gerencia o teste gratuito.\n"
         "`/addslot <id | me> [quantidade]` - Adiciona um ou mais slots extras.\n"
         "`/removeslots <id | me>` - Remove todos os slots extras.\n"
         "`/resetuser <id | me>` - Apaga TODOS os dados do usuário.\n\n"
@@ -74,6 +78,48 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/channelmembers <add|remove> <owner_id|me> <target_id|me>` - Gerencia membros.\n"
     )
     await update.message.reply_text(texto, parse_mode="Markdown")
+
+async def trial_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gerencia o status do teste gratuito de um usuário."""
+    if not is_usuario_admin(update.effective_user.id): return
+
+    if len(context.args) != 2:
+        await update.message.reply_text("❌ Uso: `/trial <reset|revoke> <user_id>`")
+        return
+
+    action = context.args[0].lower()
+    try:
+        user_id = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ ID de usuário inválido.")
+        return
+
+    if action == 'reset':
+        try:
+            resetar_flag_teste_gratuito(user_id)
+            await update.message.reply_text(f"✅ Flag de teste gratuito resetada para o usuário `{user_id}`. Ele poderá pegar o teste novamente.")
+        except ValueError as e:
+            await update.message.reply_text(f"❌ Erro: {e}")
+        except Exception as e:
+            logger.error(f"Erro ao resetar flag de teste para {user_id}: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Erro inesperado ao resetar flag: {e}")
+
+    elif action == 'revoke':
+        plano_atual = obter_plano_usuario(user_id)
+        if plano_atual != "Teste Gratuito":
+            await update.message.reply_text(f"❌ O usuário `{user_id}` não está em um plano de teste gratuito.")
+            return
+        
+        await update.message.reply_text(f"⏳ Revogando acesso de teste para o usuário `{user_id}`...")
+        try:
+            await revogar_acesso_teste_expirado(user_id)
+            await update.message.reply_text(f"✅ Acesso de teste do usuário `{user_id}` foi revogado com sucesso.")
+        except Exception as e:
+            logger.error(f"Erro ao revogar teste para {user_id}: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Erro inesperado ao revogar o teste: {e}")
+
+    else:
+        await update.message.reply_text("❌ Ação inválida. Use `reset` ou `revoke`.")
 
 async def set_cooldown_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Reseta o cooldown de 1 hora para alteração de streamers de um usuário."""

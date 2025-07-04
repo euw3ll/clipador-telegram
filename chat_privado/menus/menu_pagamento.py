@@ -72,6 +72,10 @@ async def responder_menu_5_anual(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["plano_esperado"] = "Anual Pro"
     await exibir_opcoes_pagamento(update, context, "Anual Pro")
 
+async def responder_menu_5_teste(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["plano_esperado"] = "Teste Gratuito"
+    await exibir_opcoes_pagamento(update, context, "Teste Gratuito")
+
 # Exibe botões com base no gateway
 async def exibir_opcoes_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE, plano_nome: str):
     query = update.callback_query
@@ -411,6 +415,12 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"[DEBUG] Pagamento aprovado para {email}, ativando usuário {telegram_id}...")
             try: # Sempre ativa com o plano_real
                 vincular_compra_e_ativar_usuario(telegram_id, email, plano_real, "approved")
+            except ValueError as e: # NOVO: Captura o erro de teste já utilizado
+                await update.message.reply_text(
+                    f"❌ {e}", # Exibe a mensagem de erro ("Você já utilizou...")
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]])
+                )
+                return PEDIR_EMAIL
             except Exception as e:
                 await update.message.reply_text(
                     f"❌ Erro ao ativar sua assinatura: {e}\nPor favor, tente novamente ou contate o suporte.",
