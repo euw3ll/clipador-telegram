@@ -131,25 +131,28 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
                 stream = twitch.get_stream_info(streamer_id)
                 requests_count += 1
 
-                # Se não há stream (offline) e há clipes, são de VOD. O critério é mais flexível.
                 is_vod_session = not stream and clipes
 
-                if is_vod_session:
-                    logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Streamer @{display_name} offline. Usando critério de VOD.")
-                    minimo_clipes = 1  # Clipes de VOD são sempre relevantes
-                    # Usa o intervalo do modo padrão para agrupar clipes de VOD
-                    intervalo_agrupamento = MODOS_MONITORAMENTO["MODO_PADRAO"]["intervalo_segundos"]
-                else: # Se está ao vivo ou não há clipes, usa a lógica padrão
-                    viewers = stream["viewer_count"] if stream else 0
-
-                    if modo_monitoramento == "MANUAL":
+                # Define os critérios com base no modo e se é VOD ou não
+                if modo_monitoramento == "MANUAL":
+                    intervalo_agrupamento = config_cliente.get('manual_interval_sec', 60)
+                    if is_vod_session:
+                        logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Streamer @{display_name} offline. Usando critério de VOD (Manual).")
+                        minimo_clipes = config_cliente.get('manual_min_clips_vod') or 3
+                    else:
                         minimo_clipes = config_cliente.get('manual_min_clips', 3)
-                        intervalo_agrupamento = config_cliente.get('manual_interval_sec', 60)
-                    else: # Lógica para modos predefinidos (Automático, Padrão, etc.)
-                        config_modo = MODOS_MONITORAMENTO.get(modo_monitoramento, MODOS_MONITORAMENTO["MODO_PADRAO"])
-                        intervalo_agrupamento = config_modo["intervalo_segundos"]
+                else: # Lógica para modos predefinidos (Automático, Padrão, etc.)
+                    config_modo = MODOS_MONITORAMENTO.get(modo_monitoramento, MODOS_MONITORAMENTO["MODO_PADRAO"])
+                    intervalo_agrupamento = config_modo["intervalo_segundos"]
 
+                    if is_vod_session:
+                        logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Streamer @{display_name} offline. Usando critério de VOD ({modo_monitoramento}).")
+                        # Para VOD, o modo AUTOMATICO se comporta como o PADRAO.
+                        # Os outros modos (Louco, Cirurgico) usam seus próprios min_clipes.
+                        minimo_clipes = config_modo.get("min_clipes", 3)
+                    else: # Lógica para live
                         if modo_monitoramento == "AUTOMATICO":
+                            viewers = stream["viewer_count"] if stream else 0
                             minimo_clipes = minimo_clipes_por_viewers(viewers)
                         else:
                             # Para outros modos (Louco, Padrão, Cirúrgico), usa o valor fixo do modo

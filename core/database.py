@@ -48,6 +48,7 @@ def criar_tabelas():
             -- Configurações para o modo manual
             manual_min_clips INTEGER,
             manual_interval_sec INTEGER,
+            manual_min_clips_vod INTEGER,
             -- Configurações para o plano Parceiro
             clipador_chefe_username TEXT,
             modo_parceiro TEXT -- 'somente_chefe', 'chefe_e_bot', 'somente_bot'
@@ -331,7 +332,8 @@ def migrar_tabelas():
         colunas_a_adicionar = {
             "manual_min_clips": "INTEGER",
             "manual_interval_sec": "INTEGER",
-            "clipador_chefe_username": "TEXT",
+            "manual_min_clips_vod": "INTEGER",
+            "clipador_chefe_username": "TEXT", # Mantido para compatibilidade
             "modo_parceiro": "TEXT"
         }
 
@@ -617,7 +619,7 @@ def remover_slots_extras(telegram_id: int):
     conn.close()
     logger.info(f"Slots extras removidos para o usuário {telegram_id}. Slots resetados para {slots_base}.")
 
-def atualizar_configuracao_manual(telegram_id: int, min_clips: int = None, interval_sec: int = None):
+def atualizar_configuracao_manual(telegram_id: int, min_clips: int = None, interval_sec: int = None, min_clips_vod: int = None):
     """Atualiza os parâmetros de configuração manual de um usuário."""
     conn = conectar()
     cursor = conn.cursor()
@@ -631,6 +633,9 @@ def atualizar_configuracao_manual(telegram_id: int, min_clips: int = None, inter
     if interval_sec is not None:
         updates.append("manual_interval_sec = ?")
         params.append(interval_sec)
+    if min_clips_vod is not None:
+        updates.append("manual_min_clips_vod = ?")
+        params.append(min_clips_vod)
 
     if not updates:
         conn.close()
