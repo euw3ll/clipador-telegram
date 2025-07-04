@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import re
 import logging
-from chat_privado.menus.menu_configurar_canal import responder_inicio
+from chat_privado.menus.menu_configurar_canal import cancelar_e_iniciar
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 
 logger = logging.getLogger(__name__)
@@ -461,7 +461,7 @@ def gerenciar_streamers_conversa():
         },
         fallbacks=[
             CallbackQueryHandler(encerrar_gerenciamento_streamers, pattern="^voltar_gerenciamento$"),
-            CommandHandler("start", responder_inicio)
+            CommandHandler("start", cancelar_e_iniciar)
         ],
         map_to_parent={
             ConversationHandler.END: -1
@@ -573,7 +573,7 @@ def configurar_manual_conversa():
         },
         fallbacks=[
             CallbackQueryHandler(cancelar_config_manual, pattern="^cancelar_config_manual$"),
-            CommandHandler("start", responder_inicio)
+            CommandHandler("start", cancelar_e_iniciar)
         ],
         map_to_parent={
             ConversationHandler.END: -1

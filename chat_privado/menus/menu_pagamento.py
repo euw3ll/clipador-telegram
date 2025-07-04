@@ -44,7 +44,7 @@ from core.database import (
     adicionar_slot_extra
 )
 from io import BytesIO
-from chat_privado.menus.menu_configurar_canal import responder_inicio # Importa a nova função centralizada
+from chat_privado.menus.menu_configurar_canal import cancelar_e_iniciar # Importa a nova função de fallback
 import logging
 from core.pagamento import criar_pagamento_pix, criar_pagamento_cartao # Usado apenas se o gateway for Mercado Pago
 from configuracoes import GATEWAY_PAGAMENTO, KIRVANO_LINKS, PLANOS_PRECOS
@@ -478,7 +478,7 @@ pagamento_conversation_handler = ConversationHandler(
             CallbackQueryHandler(pular_configuracao_callback, pattern="^pular_configuracao$")
         ],
     },
-    fallbacks=[CommandHandler("start", responder_inicio)], # Usa a nova função centralizada
+    fallbacks=[CommandHandler("start", cancelar_e_iniciar)], # Usa a nova função que encerra a conversa
     per_message=False
 )
 

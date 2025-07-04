@@ -868,7 +868,7 @@ def configurar_canal_conversa():
                 CallbackQueryHandler(iniciar_configuracao_manual_setup, pattern="^iniciar_config_manual_setup$") # Botão Voltar
             ],
         },
-        fallbacks=[CommandHandler("start", responder_inicio)],
+        fallbacks=[CommandHandler("start", cancelar_e_iniciar)],
         allow_reentry=True
     )
 
@@ -981,6 +981,12 @@ async def responder_inicio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Erro inesperado ao verificar membro do canal gratuito para {telegram_id}: {e}")
 
     await exibir_menu_principal(update, context)
+
+async def cancelar_e_iniciar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancela a conversa atual e exibe o menu principal."""
+    logger.info(f"Comando /start acionado como fallback. Encerrando conversa ativa para o usuário {update.effective_user.id}.")
+    await responder_inicio(update, context)
+    return ConversationHandler.END
 
 # Redirecionador manual para o menu
 async def verificar_callback_configurar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE):
