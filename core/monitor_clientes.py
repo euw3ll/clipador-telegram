@@ -235,11 +235,13 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
                 # Define os critérios com base no modo e se é VOD ou não
                 if modo_monitoramento == "MANUAL":
                     intervalo_agrupamento = config_cliente.get('manual_interval_sec', 60)
+                    minimo_clipes_ao_vivo = config_cliente.get('manual_min_clips', 3)
                     if is_vod_session:
                         logger.debug(f"🎥 [Monitor Cliente {telegram_id}] Streamer @{display_name} offline. Usando critério de VOD (Manual).")
-                        minimo_clipes = config_cliente.get('manual_min_clips_vod') or 3
+                        # Usa o valor de VOD se existir (e não for 0), senão, usa o valor de clipes ao vivo como fallback.
+                        minimo_clipes = config_cliente.get('manual_min_clips_vod') or minimo_clipes_ao_vivo
                     else:
-                        minimo_clipes = config_cliente.get('manual_min_clips', 3)
+                        minimo_clipes = minimo_clipes_ao_vivo
                 else: # Lógica para modos predefinidos (Automático, Padrão, etc.)
                     config_modo = MODOS_MONITORAMENTO.get(modo_monitoramento, MODOS_MONITORAMENTO["MODO_PADRAO"])
                     intervalo_agrupamento = config_modo["intervalo_segundos"]
