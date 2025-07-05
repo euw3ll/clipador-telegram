@@ -20,21 +20,19 @@ from .core.monitor import ( # Importando as funções e constantes necessárias
     MODOS_MONITORAMENTO, # Usado para o modo AUTOMATICO
 )
 from configuracoes import (
-    TELEGRAM_CHAT_ID,
+    CANAL_GRATUITO_ID,
     INTERVALO_MENSAGEM_PROMOCIONAL,
     INTERVALO_MENSAGEM_HEADER,
     INTERVALO_ATUALIZACAO_STREAMERS,
     TIPO_LOG,
     ATUALIZAR_DESCRICAO,
     ENVIAR_CLIPES,
-    USAR_VERIFICACAO_AO_VIVO, MODO_MONITORAMENTO_GRATUITO,
+    USAR_VERIFICACAO_AO_VIVO,
+    MODO_MONITORAMENTO_GRATUITO,
+    QUANTIDADE_STREAMERS_TOP_BR,
+    STREAMERS_ADICIONAIS_GRATUITO,
+    INTERVALO_ANALISE_MINUTOS_GRATUITO,
 )
-
-# =================== CONFIGURAÇÕES DO main.py =================== #
-QUANTIDADE_STREAMERS = 5            # Quantos streamers do topo do Brasil monitorar
-INTERVALO_ANALISE_MINUTOS = 10      # Janela de tempo para buscar clipes
-TEMPO_CONSIDERADO_OFFLINE = 1200    # Em segundos (20min) para buscar clipes retroativos
-# ================================================================= #
 
 def limpar_terminal():
     os.system("cls" if os.name == "nt" else "clear")
@@ -70,25 +68,44 @@ async def main(application: "Application"):
             requests_count = 0
 
             # 🆕 ATUALIZAR A LISTA DE STREAMERS A CADA CICLO
-            logins = twitch.get_top_streamers_brasil(quantidade=QUANTIDADE_STREAMERS)
+            top_logins = twitch.get_top_streamers_brasil(quantidade=QUANTIDADE_STREAMERS_TOP_BR)
             requests_count += 1
-            top_streamers = [twitch.get_user_info(login) for login in logins if twitch.get_user_info(login)]
-            requests_count += len(logins) # Conta as chamadas de get_user_info
+
+            # Combina a lista de top streamers com a lista de streamers adicionais, sem duplicatas
+            # Mantém a ordem: adicionais primeiro, depois os tops.
+            combined_logins = []
+            seen_logins = set()
+
+            for login in STREAMERS_ADICIONAIS_GRATUITO:
+                login_lower = login.lower()
+                if login_lower not in seen_logins:
+                    combined_logins.append(login)
+                    seen_logins.add(login_lower)
+
+            for login in top_logins:
+                login_lower = login.lower()
+                if login_lower not in seen_logins:
+                    combined_logins.append(login)
+                    seen_logins.add(login_lower)
+
+            # Busca as informações dos usuários para a lista combinada
+            streamers_a_monitorar = [twitch.get_user_info(login) for login in combined_logins if twitch.get_user_info(login)]
+            requests_count += len(combined_logins) # Conta as chamadas de get_user_info
 
             # Salva os streamers monitorados para o comando de stats
-            application.bot_data['free_channel_streamers'] = [s['display_name'] for s in top_streamers]
-            if not top_streamers:
+            application.bot_data['free_channel_streamers'] = [s['display_name'] for s in streamers_a_monitorar]
+            if not streamers_a_monitorar:
                 print("❌ Nenhum streamer encontrado no momento.")
                 time.sleep(INTERVALO_MONITORAMENTO)
                 continue
 
             if TIPO_LOG == "DESENVOLVEDOR":
-                print("🔄 Lista de streamers atualizada:", ", ".join([s["display_name"] for s in top_streamers]))
+                print("🔄 Lista de streamers atualizada:", ", ".join([s["display_name"] for s in streamers_a_monitorar]))
 
             # Correção: buscar clipes retroativos de 5 minutos
-            tempo_inicio = get_time_minutes_ago(minutes=5)
+            tempo_inicio = get_time_minutes_ago(minutes=INTERVALO_ANALISE_MINUTOS_GRATUITO)
 
-            for streamer in top_streamers:
+            for streamer in streamers_a_monitorar:
                 user_id = streamer["id"]
                 display_name = streamer["display_name"]
 
@@ -130,12 +147,12 @@ async def main(application: "Application"):
                     if not grupo_enviado:
                         if INTERVALO_MENSAGEM_PROMOCIONAL > 0 and agora - estado["ultimo_envio_promocional"] >= INTERVALO_MENSAGEM_PROMOCIONAL:
                             mensagem_promo = "<b>🤑 Transforme clipes em dinheiro!</b>\nCom o Clipador, você tem acesso aos melhores clipes em tempo real, prontos para você monetizar.\n\nGaranta agora 👉 @ClipadorBot"
-                            await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem_promo, parse_mode="HTML")
+                            await application.bot.send_message(chat_id=CANAL_GRATUITO_ID, text=mensagem_promo, parse_mode="HTML")
                             estado["ultimo_envio_promocional"] = agora
 
                         if INTERVALO_ATUALIZACAO_STREAMERS > 0 and agora - estado["ultimo_envio_atualizacao_streamers"] >= INTERVALO_ATUALIZACAO_STREAMERS:
-                            mensagem_update = f"Estamos acompanhando em tempo real os <b>{len(top_streamers)} streamers mais assistidos do Brasil</b> no momento.\n\n📺 Fique ligado e aproveite os melhores clipes! 🎯"
-                            await application.bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=mensagem_update, parse_mode="HTML")
+                            mensagem_update = f"Estamos acompanhando em tempo real os <b>{len(streamers_a_monitorar)} streamers mais assistidos do Brasil</b> no momento.\n\n📺 Fique ligado e aproveite os melhores clipes! 🎯"
+                            await application.bot.send_message(chat_id=CANAL_GRATUITO_ID, text=mensagem_update, parse_mode="HTML")
                             estado["ultimo_envio_atualizacao_streamers"] = agora
 
                     inicio = grupo["inicio"]
@@ -168,7 +185,7 @@ async def main(application: "Application"):
                     if ENVIAR_CLIPES:
                         botoes = [[InlineKeyboardButton("📥 BAIXAR CLIPE", url=download_url)]]
                         await application.bot.send_message(
-                            chat_id=TELEGRAM_CHAT_ID,
+                            chat_id=CANAL_GRATUITO_ID,
                             text=mensagem,
                             reply_markup=InlineKeyboardMarkup(botoes),
                             parse_mode="HTML"
@@ -189,10 +206,10 @@ async def main(application: "Application"):
             # ATUALIZAÇÃO DA DESCRIÇÃO (MOVIDO PARA FORA DO LOOP DE STREAMERS)
             if ATUALIZAR_DESCRICAO:
                 try:
-                    logins_monitorados = [s["login"] for s in top_streamers]
+                    logins_monitorados = [s["login"] for s in streamers_a_monitorar]
                     cabecalho = (
                         f"O CLIPADOR ESTÁ ONLINE 😎\n"
-                        f"👀 Monitorando os {QUANTIDADE_STREAMERS} streamers 🇧🇷 mais assistidos agora 👇"
+                        f"👀 Monitorando {len(streamers_a_monitorar)} streamers agora 👇"
                     )
                     lista = "\n" + "\n".join([f"• @{login}" for login in logins_monitorados]) if logins_monitorados else ""
 
@@ -207,7 +224,7 @@ async def main(application: "Application"):
                         descricao_nova = descricao_nova[:252] + "..."
 
                     if descricao_nova != estado.get("ultima_descricao"):
-                        await application.bot.set_chat_description(chat_id=TELEGRAM_CHAT_ID, description=descricao_nova)
+                        await application.bot.set_chat_description(chat_id=CANAL_GRATUITO_ID, description=descricao_nova)
                         estado["ultima_descricao"] = descricao_nova
                         print("✅ Descrição do canal atualizada com sucesso.")
                 except Exception as e:
@@ -217,9 +234,9 @@ async def main(application: "Application"):
 
             if TIPO_LOG == "PADRAO":
                 limpar_terminal()
-                print(f"🎯 Monitorando os {len(top_streamers)} streamers com mais viewers do Brasil")
+                print(f"🎯 Monitorando {len(streamers_a_monitorar)} streamers")
                 print("-" * 50)
-                print(f"🎥 {total_clipes} clipe(s) encontrados nos últimos {INTERVALO_ANALISE_MINUTOS} minutos.")
+                print(f"🎥 {total_clipes} clipe(s) encontrados nos últimos {INTERVALO_ANALISE_MINUTOS_GRATUITO} minutos.")
                 if total_enviados == 0:
                     print("❌ Nenhum grupo viral identificado.")
                 else:
@@ -244,7 +261,7 @@ async def main(application: "Application"):
     except asyncio.CancelledError:
         try:
             descricao_offline = "O CLIPADOR ESTÁ OFFLINE 😭"
-            await application.bot.set_chat_description(chat_id=TELEGRAM_CHAT_ID, description=descricao_offline)
+            await application.bot.set_chat_description(chat_id=CANAL_GRATUITO_ID, description=descricao_offline)
             print("\n🛑 Monitor do canal gratuito encerrado.")
         except Exception as e:
             print(f"⚠️ Erro ao atualizar descrição OFFLINE no monitor gratuito: {e}")

@@ -11,9 +11,9 @@ MODOS_MONITORAMENTO = {
 }
 
 # Critério fixo para o canal gratuito
-INTERVALO_SEGUNDOS = 60
+INTERVALO_SEGUNDOS = 120
 INTERVALO_MONITORAMENTO = 30
-MINIMO_CLIPES = 4
+MINIMO_CLIPES = 3
 
 def agrupar_clipes_por_proximidade(
     clipes,
