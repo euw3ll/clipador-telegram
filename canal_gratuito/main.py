@@ -122,7 +122,7 @@ async def main(application: "Application"):
                 print("🔄 Lista de streamers atualizada:", ", ".join([s["display_name"] for s in streamers_a_monitorar]))
 
             # Correção: buscar clipes retroativos de 5 minutos
-            tempo_inicio = get_time_minutes_ago(minutes=INTERVAL    O_ANALISE_MINUTOS_GRATUITO)
+            tempo_inicio = get_time_minutes_ago(minutes=INTERVALO_ANALISE_MINUTOS_GRATUITO)
 
             for streamer in streamers_a_monitorar:
                 user_id = streamer["id"]

@@ -17,7 +17,7 @@ LINK_CANAL_GRATUITO = "https://t.me/clipadorfree" # IMPORTANTE: Substitua pelo l
 
 # ⚙️ PARÂMETROS DE MONITORAMENTO
 QUANTIDADE_STREAMERS_TOP_BR = 5      # Quantos streamers do topo do Brasil monitorar.
-STREAMERS_ADICIONAIS_GRATUITO = [""] # Lista de streamers para monitorar ADICIONALMENTE aos tops. Deixe [] se não quiser.
+STREAMERS_ADICIONAIS_GRATUITO = [] # Lista de streamers para monitorar ADICIONALMENTE aos tops. Deixe [] se não quiser.
 INTERVALO_ANALISE_MINUTOS_GRATUITO = 10 # Janela de tempo para buscar clipes (em minutos).
 
 # 🔄 SWITCHES DE FUNCIONALIDADE
