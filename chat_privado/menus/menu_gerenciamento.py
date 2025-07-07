@@ -347,7 +347,8 @@ async def adicionar_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ja_existentes.append(nome_streamer)
                 continue
 
-            if twitch.get_user_info(nome_streamer):
+            user_info = await twitch.get_user_info(nome_streamer)
+            if user_info:
                 adicionados_sucesso.append(nome_streamer)
             else:
                 falhas_validacao.append(nome_streamer)

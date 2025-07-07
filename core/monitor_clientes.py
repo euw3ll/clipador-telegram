@@ -2,8 +2,8 @@ import asyncio
 import time
 from typing import TYPE_CHECKING
 from datetime import datetime, timezone, timedelta
-import logging
-import requests 
+import logging 
+import httpx
 from telegram import error as telegram_error
 
 from core.database import (
@@ -176,15 +176,12 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
     try:
         # Obter IDs dos streamers
         # Validação da TwitchAPI
-        logger.info(f"🤖 [Monitor Cliente] Obtendo informações do token para o usuário {telegram_id}.")
-        logger.info(f"   - Token: {twitch.token[:20]}...") # Mostra apenas parte do token
-
-        streamers_info = []
-        for login in streamers_logins:
-            info = twitch.get_user_info(login)
-            requests_count += 1
-            if info:
-                streamers_info.append(info)
+        logger.info(f"🤖 [Monitor Cliente] Buscando informações para {len(streamers_logins)} streamers do usuário {telegram_id}.")
+        # Otimiza a busca de informações dos usuários em paralelo
+        tasks = [twitch.get_user_info(login) for login in streamers_logins]
+        user_infos = await asyncio.gather(*tasks)
+        streamers_info = [info for info in user_infos if info] # Filtra os resultados nulos
+        requests_count += len(streamers_logins)
         streamers_ids = {s["id"]: s["display_name"] for s in streamers_info}
 
         if not streamers_info:
@@ -204,7 +201,7 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
 
             # --- LÓGICA DE NOTIFICAÇÃO "STREAMER ONLINE" ---
             # Busca o status da stream no início do loop para reutilização
-            stream = twitch.get_stream_info(streamer_id)
+            stream = await twitch.get_stream_info(streamer_id)
             requests_count += 1
 
             status_atual = 'online' if stream else 'offline'
@@ -232,7 +229,7 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
                     except telegram_error.TelegramError as e:
                         logger.error(f"❌ Erro de Telegram ao enviar notificação online para o canal do cliente {telegram_id}: {e}")
 
-            clipes = twitch.get_recent_clips(streamer_id, started_at=tempo_inicio)
+            clipes = await twitch.get_recent_clips(streamer_id, started_at=tempo_inicio)
             requests_count += 1
             logger.debug(f"🔎 [Monitor Cliente {telegram_id}] {len(clipes)} clipes encontrados para @{display_name} no período.")
             
@@ -247,7 +244,7 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
                             clipe_url = clipe["url"]
                             created_at_dt = datetime.fromisoformat(clipe["created_at"].replace("Z", "+00:00"))
                             
-                            tipo_raw = "CLIPE AO VIVO" if eh_clipe_ao_vivo_real(clipe, twitch, streamer_id) else "CLIPE DO VOD"
+                            tipo_raw = "CLIPE AO VIVO" if await eh_clipe_ao_vivo_real(clipe, twitch, streamer_id) else "CLIPE DO VOD"
                             tipo_formatado = f"\n🔴 <b>{tipo_raw}</b>" if tipo_raw == "CLIPE AO VIVO" else f"\n⏳ <b>{tipo_raw}</b>"
 
                             mensagem_chefe = (
@@ -309,7 +306,7 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
                     primeiro_clipe = grupo["clipes"][0]
                     clipe_url = primeiro_clipe["url"]
 
-                    tipo_raw = "CLIPE AO VIVO" if eh_clipe_ao_vivo_real(primeiro_clipe, twitch, streamer_id) else "CLIPE DO VOD"
+                    tipo_raw = "CLIPE AO VIVO" if await eh_clipe_ao_vivo_real(primeiro_clipe, twitch, streamer_id) else "CLIPE DO VOD"
                     tipo_formatado = f"\n🔴 <b>{tipo_raw}</b>" if tipo_raw == "CLIPE AO VIVO" else f"\n⏳ <b>{tipo_raw}</b>"
 
                     if quantidade == 1:
@@ -335,8 +332,8 @@ async def monitorar_cliente(config_cliente: dict, application: "Application"):
 
         application.bot_data[f'client_{telegram_id}_requests'] = requests_count
 
-    except requests.exceptions.HTTPError as e:
-        if e.response and e.response.status_code == 401:
+    except httpx.HTTPStatusError as e:
+        if e.response and e.response.status_code in [401, 403]:
             logger.error(f"❌ Credenciais Twitch inválidas para o cliente {telegram_id}. Notificando...")
             mensagem_erro = (
                 "⚠️ *Atenção: Suas credenciais da Twitch são inválidas ou expiraram!*\n\n"

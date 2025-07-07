@@ -412,7 +412,7 @@ async def receber_credenciais(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Avança para a próxima etapa, que agora usa ForceReply para guiar o usuário
     return await iniciar_envio_streamers(update, context)
 
-async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Envia uma ação de "digitando" para dar feedback imediato ao usuário
     await update.message.chat.send_action(action="typing")
     context.user_data.setdefault("mensagens_para_apagar", []).append(update.message.message_id)
@@ -426,7 +426,7 @@ async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         twitch = TwitchAPI(twitch_id, twitch_client_secret) # Agora passa as credenciais do usuário
-        streamer_info = twitch.get_user_info(nome)
+        streamer_info = await twitch.get_user_info(nome)
         if not streamer_info:
             await update.message.reply_text(f"❌ Streamer '{nome_raw}' não encontrado na Twitch. Verifique o nome e tente novamente.")
             return ESPERANDO_STREAMERS

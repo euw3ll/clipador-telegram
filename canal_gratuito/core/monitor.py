@@ -63,9 +63,14 @@ def agrupar_clipes_por_proximidade(
 
     return grupos
 
-def get_time_minutes_ago(minutes=5):
+def get_time_minutes_ago(minutes: int = 5) -> str:
+    """
+    Calcula o tempo X minutos atrás a partir do tempo UTC atual.
+    Retorna uma string no formato ISO 8601 com 'Z' (Zulu time) e precisão de milissegundos,
+    compatível com a API da Twitch.
+    """
     dt = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-    return dt.isoformat().replace("+00:00", "Z")
+    return dt.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
 def minimo_clipes_por_viewers(viewers: int) -> int:
     """
@@ -81,12 +86,12 @@ def minimo_clipes_por_viewers(viewers: int) -> int:
     else: # 15k+ viewers
         return 5  # Para gigantes, o evento precisa ser muito forte
 
-def eh_clipe_ao_vivo_real(clip, twitch, user_id):
-    stream = twitch.get_stream_info(user_id)
+async def eh_clipe_ao_vivo_real(clip, twitch, user_id):
+    stream = await twitch.get_stream_info(user_id)
     if not stream:
         return False
 
-    vod = twitch.get_latest_vod(user_id)
+    vod = await twitch.get_latest_vod(user_id)
     if not vod:
         return False
 

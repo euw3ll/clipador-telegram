@@ -34,6 +34,8 @@ from configuracoes import (
     INTERVALO_ANALISE_MINUTOS_GRATUITO,
 )
 
+TIMEOUT_REQUESTS = 20 # Segundos para timeout das requisições à Twitch
+
 def limpar_terminal():
     os.system("cls" if os.name == "nt" else "clear")
 
@@ -68,7 +70,14 @@ async def main(application: "Application"):
             requests_count = 0
 
             # 🆕 ATUALIZAR A LISTA DE STREAMERS A CADA CICLO
-            top_logins = twitch.get_top_streamers_brasil(quantidade=QUANTIDADE_STREAMERS_TOP_BR)
+            try:
+                top_logins = await asyncio.wait_for(
+                    twitch.get_top_streamers_brasil(quantidade=QUANTIDADE_STREAMERS_TOP_BR),
+                    timeout=TIMEOUT_REQUESTS
+                )
+            except asyncio.TimeoutError:
+                print(f"⚠️ Timeout ao buscar top streamers do Brasil. Pulando ciclo de atualização.")
+                top_logins = []
             requests_count += 1
 
             # Combina a lista de top streamers com a lista de streamers adicionais, sem duplicatas
@@ -88,8 +97,18 @@ async def main(application: "Application"):
                     combined_logins.append(login)
                     seen_logins.add(login_lower)
 
+            async def get_user_info_with_timeout(login):
+                try:
+                    return await asyncio.wait_for(twitch.get_user_info(login), timeout=TIMEOUT_REQUESTS)
+                except asyncio.TimeoutError:
+                    print(f"⚠️ Timeout ao buscar informações de @{login}. Pulando.")
+                    return None
+
             # Busca as informações dos usuários para a lista combinada
-            streamers_a_monitorar = [twitch.get_user_info(login) for login in combined_logins if twitch.get_user_info(login)]
+            # Otimiza a busca de informações dos usuários em paralelo
+            tasks = [get_user_info_with_timeout(login) for login in combined_logins]
+            user_infos = await asyncio.gather(*tasks)
+            streamers_a_monitorar = [info for info in user_infos if info] # Filtra os resultados nulos
             requests_count += len(combined_logins) # Conta as chamadas de get_user_info
 
             # Salva os streamers monitorados para o comando de stats
@@ -103,7 +122,7 @@ async def main(application: "Application"):
                 print("🔄 Lista de streamers atualizada:", ", ".join([s["display_name"] for s in streamers_a_monitorar]))
 
             # Correção: buscar clipes retroativos de 5 minutos
-            tempo_inicio = get_time_minutes_ago(minutes=INTERVALO_ANALISE_MINUTOS_GRATUITO)
+            tempo_inicio = get_time_minutes_ago(minutes=INTERVAL    O_ANALISE_MINUTOS_GRATUITO)
 
             for streamer in streamers_a_monitorar:
                 user_id = streamer["id"]
@@ -112,7 +131,14 @@ async def main(application: "Application"):
                 if TIPO_LOG == "DESENVOLVEDOR":
                     print(f"🎥 Buscando clipes de @{display_name}...")
 
-                clipes = twitch.get_recent_clips(user_id, started_at=tempo_inicio)
+                try:
+                    clipes = await asyncio.wait_for(
+                        twitch.get_recent_clips(user_id, started_at=tempo_inicio),
+                        timeout=TIMEOUT_REQUESTS
+                    )
+                except asyncio.TimeoutError:
+                    print(f"⚠️ Timeout ao buscar clipes de @{display_name}. Pulando este streamer no ciclo.")
+                    clipes = []
                 requests_count += 1
                 total_clipes += len(clipes)
                 clipes_novos = []
@@ -129,7 +155,14 @@ async def main(application: "Application"):
                     print(f"🔎 {len(clipes_novos)} clipes novos encontrados.")
 
                 if MODO_MONITORAMENTO_GRATUITO == 'AUTOMATICO':
-                    stream = twitch.get_stream_info(user_id)
+                    stream = None
+                    try:
+                        stream = await asyncio.wait_for(
+                            twitch.get_stream_info(user_id),
+                            timeout=TIMEOUT_REQUESTS
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"⚠️ Timeout ao buscar status da stream de @{display_name}. Assumindo offline.")
                     requests_count += 1
                     viewers = stream["viewer_count"] if stream else 0
                     minimo_clipes = minimo_clipes_por_viewers(viewers)
@@ -161,11 +194,17 @@ async def main(application: "Application"):
                     primeiro_clipe = grupo["clipes"][0]
                     clipe_url = primeiro_clipe["url"]
 
-                    tipo_raw = (
-                        "CLIPE AO VIVO"
-                        if USAR_VERIFICACAO_AO_VIVO and eh_clipe_ao_vivo_real(primeiro_clipe, twitch, user_id)
-                        else "CLIPE DO VOD"
-                    )
+                    is_live = False
+                    if USAR_VERIFICACAO_AO_VIVO:
+                        try:
+                            is_live = await asyncio.wait_for(
+                                eh_clipe_ao_vivo_real(primeiro_clipe, twitch, user_id),
+                                timeout=TIMEOUT_REQUESTS
+                            )
+                        except asyncio.TimeoutError:
+                            print(f"⚠️ Timeout ao verificar se o clipe de @{display_name} é ao vivo. Assumindo VOD.")
+                            is_live = False
+                    tipo_raw = "CLIPE AO VIVO" if is_live else "CLIPE DO VOD"
                     tipo_formatado = f"\n🔴 <b>{tipo_raw}</b>" if tipo_raw == "CLIPE AO VIVO" else f"\n⏳ <b>{tipo_raw}</b>"
 
                     mensagem = (
