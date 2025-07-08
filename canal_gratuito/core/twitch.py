@@ -8,7 +8,10 @@ class TwitchAPI:
         self.client_id = client_id
         self.client_secret = client_secret
         self.token = None
-        self._client = httpx.AsyncClient()
+        # Configura o transporte com retentativas para erros de conexão
+        transport = httpx.AsyncHTTPTransport(retries=3)
+        # Configura o cliente com o transporte e um timeout mais generoso
+        self._client = httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(15.0, connect=5.0))
 
     async def get_access_token(self):
         url = "https://id.twitch.tv/oauth2/token"

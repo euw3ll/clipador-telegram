@@ -3,6 +3,7 @@ import sqlite3
 import requests
 import asyncio
 import logging
+import httpx # Importar httpx para capturar erros específicos
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, error as telegram_error
 from telegram.ext import (
     CallbackContext, CommandHandler, MessageHandler,
@@ -424,12 +425,22 @@ async def receber_streamer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     twitch_id = context.user_data.get("twitch_id")
     twitch_client_secret = context.user_data.get("twitch_secret")
 
-    try:
-        twitch = TwitchAPI(twitch_id, twitch_client_secret) # Agora passa as credenciais do usuário
+    try: # Bloco try...except aprimorado para validação de credenciais
+        twitch = TwitchAPI(twitch_id, twitch_client_secret)
         streamer_info = await twitch.get_user_info(nome)
         if not streamer_info:
             await update.message.reply_text(f"❌ Streamer '{nome_raw}' não encontrado na Twitch. Verifique o nome e tente novamente.")
             return ESPERANDO_STREAMERS
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in [401, 403]:
+            await update.message.reply_text("❌ Credenciais da Twitch inválidas. Verifique o ID e o Segredo do Cliente e tente novamente. Para corrigir, envie as credenciais novamente ou reinicie a configuração com /start.")
+        else:
+            await update.message.reply_text(f"❌ Erro de comunicação com a Twitch (HTTP {e.response.status_code}). Tente novamente mais tarde.")
+        return ESPERANDO_STREAMERS # Mantém o usuário na mesma etapa
+    except httpx.RequestError as e:
+        logger.error(f"Erro de rede ao validar streamer '{nome}' na Twitch: {e}")
+        await update.message.reply_text("❌ Ocorreu um erro de rede ao conectar com a Twitch. Verifique sua conexão e tente novamente.")
+        return ESPERANDO_STREAMERS
     except Exception as e:
         logger.error(f"Erro ao validar streamer '{nome}' na Twitch: {e}")
         await update.message.reply_text("❌ Ocorreu um erro ao verificar o streamer na Twitch. Verifique suas credenciais ou tente novamente mais tarde.")
