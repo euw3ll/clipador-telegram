@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from core.database import desativar_assinatura_por_email, buscar_configuracao_canal, atualizar_data_expiracao
-from core.telethon_gerenciar_canal import remover_usuario_do_canal
+from core.database import desativar_assinatura_por_email, buscar_configuracao_canal, atualizar_data_expiracao, registrar_compra, sale_id_ja_registrado
+from core.telethon_criar_canal import remover_usuario_do_canal
 from core.ambiente import KIRVANO_TOKEN
 
 app = Flask(__name__)
@@ -42,7 +42,7 @@ def kirvano_webhook():
     print(f"🔔 Webhook recebido: {event_type} para o e-mail {email}")
 
     # 2. Roteamento de Eventos
-    if event_type in ['subscription.canceled', 'subscription.expired', 'purchase.refunded', 'purchase.chargeback']:
+    if event_type in ['subscription.canceled', 'subscription.expired', 'purchase.refunded', 'purchase.chargeback', 'subscription.late']:
         handle_subscription_ended(email, status)
 
     elif event_type == 'subscription.renewed':
@@ -50,7 +50,28 @@ def kirvano_webhook():
         handle_subscription_renewed(email, plano)
     
     elif event_type == 'purchase.approved':
-        print(f"INFO: Compra aprovada para {email} registrada via webhook (ação tratada no bot).")
+        sale_id = data.get('sale_id')
+        if not sale_id:
+            print("⚠️ Webhook de compra aprovada sem 'sale_id'. Ignorando.")
+            return jsonify({"status": "error", "message": "sale_id não encontrado"}), 400
+
+        if sale_id_ja_registrado(sale_id):
+            print(f"INFO: Compra com sale_id {sale_id} já registrada. Ignorando webhook duplicado.")
+            return jsonify({"status": "success", "message": "duplicado"}), 200
+
+        # Extraindo dados do payload
+        produto = data.get('products', [{}])[0]
+        plano = produto.get('offer_name', 'Plano Desconhecido')
+        metodo_pagamento = data.get('payment', {}).get('method')
+        data_criacao = data.get('created_at')
+        offer_id = produto.get('offer_id')
+        nome_completo = data.get('customer', {}).get('name')
+        telefone = data.get('customer', {}).get('phone_number')
+
+        # O telegram_id é None aqui, pois será vinculado pelo bot depois
+        registrar_compra(None, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id, nome_completo, telefone)
+        print(f"✅ Compra aprovada para {email} (Plano: {plano}) registrada no banco de dados via webhook.")
+
 
     else:
         print(f"INFO: Evento não tratado recebido: {event_type}")
