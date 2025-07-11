@@ -390,21 +390,8 @@ async def receber_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     return PEDIR_EMAIL
                 print(f"[DEBUG] Admin {telegram_id} ativando acesso gratuito com e-mail {email}.") # Log para admin
-            
-            if plano_real != plano_esperado and (not metodo_pagamento or metodo_pagamento.upper() != "FREE"):
-                await update.message.reply_text(
-                    "❌ O plano selecionado não corresponde ao plano que você comprou.\n"
-                    f"Você comprou o plano *{plano_real}*, mas selecionou o *{plano_esperado}*.\n"
-                    "Volte e selecione o plano correto.",
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("🔙 Voltar aos planos", callback_data="menu_2")]
-                    ])
-                )
-                return PEDIR_EMAIL
-            
-            # Mensagem informativa se o plano pago for diferente do selecionado
-            if plano_real != plano_esperado:
+
+            if plano_real and plano_esperado and plano_real != plano_esperado:
                 await update.message.reply_text(
                     f"⚠️ Você selecionou o plano *{plano_esperado}*, mas seu pagamento foi para o plano *{plano_real}*.\n"
                     f"Sua assinatura foi ativada para o plano *{plano_real}*.",
