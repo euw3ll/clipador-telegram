@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import asyncio
 from datetime import datetime, timedelta
+import subprocess # Importa o módulo subprocess
 
 # Adicionar o path do projeto para que os imports funcionem
 import sys
@@ -12,6 +13,25 @@ from core.telethon_criar_canal import remover_usuario_do_canal
 from core.ambiente import KIRVANO_TOKEN
 
 app = Flask(__name__)
+
+# Função para iniciar o ngrok (movida para fora do bloco main)
+def iniciar_ngrok():
+    try:
+        # Inicia o ngrok em segundo plano.  Adapte o caminho conforme necessário.
+        process = subprocess.Popen(['ngrok', 'http', '5100'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # Imprime os logs do ngrok para fins de depuração (opcional)
+        # for line in process.stdout:
+        #     print(line.decode('utf-8').strip())
+        # for line in process.stderr:
+        #     print(line.decode('utf-8').strip())
+        print("ngrok iniciado em background.")
+        return process
+    except FileNotFoundError:
+        print("Erro: ngrok não encontrado. Verifique se está instalado e no PATH.")
+        return None
+    except Exception as e:
+        print(f"Erro ao iniciar ngrok: {e}")
+        return None
 
 # Função para rodar corrotinas a partir de um contexto síncrono (Flask)
 def run_async(coro):
@@ -108,4 +128,15 @@ def handle_subscription_renewed(email, plano):
     print(f"Data de expiração para {email} atualizada para {nova_data.strftime('%Y-%m-%d')}")
 
 def iniciar_webhook():
-    app.run(host='0.0.0.0', port=5100)
+    # Verifica a variável de ambiente antes de iniciar o ngrok
+    from configuracoes import ENABLE_NGROK
+
+    if ENABLE_NGROK:
+        ngrok_process = iniciar_ngrok()
+    else:
+        print("ngrok desativado pela variável de ambiente.")
+        ngrok_process = None
+
+    app.run(host='0.0.0.0', port=5100, debug=True, use_reloader=False) # Adicionado debug e reloader para evitar multiplas instancias
+    if ngrok_process:
+        ngrok_process.terminate()

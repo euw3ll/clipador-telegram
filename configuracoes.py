@@ -21,6 +21,7 @@ STREAMERS_ADICIONAIS_GRATUITO = [] # Lista de streamers para monitorar ADICIONAL
 INTERVALO_ANALISE_MINUTOS_GRATUITO = 10 # Janela de tempo para buscar clipes (em minutos).
 
 # 🔄 SWITCHES DE FUNCIONALIDADE
+ENABLE_NGROK = False
 MODO_MONITORAMENTO_GRATUITO = "MANUAL" # Opções para o canal gratuito: 'AUTOMATICO' (sensibilidade baseada em viewers) ou 'MANUAL' (usa as constantes de `canal_gratuito/core/monitor.py`)
 TIPO_LOG = "PADRAO"  # "PADRAO" ou "DESENVOLVEDOR"
 ATUALIZAR_DESCRICAO = True
