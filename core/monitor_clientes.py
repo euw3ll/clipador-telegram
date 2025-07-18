@@ -19,7 +19,6 @@ from core.database import (
     atualizar_ultimo_aviso_expiracao,
     desativar_assinatura_por_email,
     buscar_usuario_por_id,
-    revogar_acesso_teste_expirado,
 )
 from canal_gratuito.core.twitch import TwitchAPI # Reutilizando a TwitchAPI
 from canal_gratuito.core.monitor import ( # Reutilizando funções e o dicionário de modos
@@ -71,7 +70,7 @@ async def verificar_expiracoes_assinaturas(application: "Application"):
                     "Seu canal e suas configurações foram removidos. Para continuar usando o Clipador e criar um novo canal, "
                     "assine um de nossos planos."
                 )
-            elif dias_restantes <= 1:
+            elif dias_restantes == 1:
                 dias_aviso = 1
                 mensagem = (
                     "⚠️ *Seu teste gratuito termina em menos de 24 horas!* ⚠️\n\n"
@@ -94,7 +93,7 @@ async def verificar_expiracoes_assinaturas(application: "Application"):
                     "Seu acesso foi desativado. Para voltar a receber os melhores clipes, "
                     "renove sua assinatura agora mesmo."
                 )
-            elif dias_restantes <= 1:
+            elif dias_restantes == 1:
                 dias_aviso = 1
                 mensagem = (
                     "⚠️ *Atenção: Sua assinatura expira em 1 dia!* ⚠️\n\n"
@@ -121,15 +120,16 @@ async def verificar_expiracoes_assinaturas(application: "Application"):
                 logger.info(f"✅ Lembrete de expiração ({dias_aviso} dias) enviado para o usuário {telegram_id}.")
                 atualizar_ultimo_aviso_expiracao(telegram_id, dias_aviso)
 
-                if dias_aviso == 0:
-                    if is_trial:
-                        await revogar_acesso_teste_expirado(telegram_id)
-                        logger.info(f"🔴 Teste gratuito do usuário {telegram_id} expirou. Acesso e canal removidos.")
-                    elif user_data.get('email'):
-                        desativar_assinatura_por_email(user_data['email'], 'expirado')
-                        logger.info(f"🔴 Assinatura do usuário {telegram_id} expirou e foi desativada.")
+                # Se a assinatura expirou, envia um aviso no grupo e impede novos envios
+                if dias_aviso == 0: # Removemos a lógica de desativação e exclusão
+                    chat_id = user_data.get("id_canal_telegram")
+                    if chat_id:
+                        await application.bot.send_message(chat_id=chat_id, text=f"🔴 A assinatura do Clipador expirou. Não enviaremos mais clipes por enquanto. Renove para continuar!", parse_mode="Markdown")
+                        logger.info(f"🔴 Assinatura do usuário {telegram_id} expirou. Notificação de expiração enviada ao grupo.")
                     else:
-                        logger.warning(f"Não foi possível desativar a assinatura do {telegram_id} pois não foi encontrado um e-mail associado.")
+                        logger.warning(
+                            f"Assinatura do usuário {telegram_id} expirou, mas o chat_id não foi encontrado. Não foi possível notificar o grupo."
+                        )
             except telegram_error.TelegramError as e:
                 logger.error(f"❌ Falha ao enviar lembrete de expiração para {telegram_id}: {e}")
 
