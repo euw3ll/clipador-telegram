@@ -1430,6 +1430,31 @@ def listar_todos_usuarios() -> List[Dict[str, Any]]:
     finally:
         conn.close()
 
+# --- FUNÇÕES DE COMPATIBILIDADE RESTAURADAS ---
+
+def atualizar_telegram_id_simples(telegram_id_antigo: int, telegram_id_novo: int):
+    """Atualiza o telegram_id usando o valor antigo como referência."""
+    conn = conectar()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE usuarios SET telegram_id = %s WHERE telegram_id = %s", (telegram_id_novo, telegram_id_antigo))
+            conn.commit()
+    finally:
+        conn.close()
+
+def sale_id_ja_registrado(sale_id: str) -> bool:
+    """Função para verificar se sale_id já foi registrado."""
+    conn = conectar()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM compras WHERE sale_id = %s LIMIT 1", (sale_id,))
+            return cursor.fetchone() is not None
+    finally:
+        conn.close()
+
+# Alias para manter a compatibilidade com o código antigo que usa este nome
+compra_ja_registrada = sale_id_ja_registrado        
+
 # --- FUNÇÃO DE INICIALIZAÇÃO ---
 
 def inicializar_banco():
