@@ -1,61 +1,55 @@
-import sqlite3
+from typing import Optional, List, Dict, Any
+import core.database as db  # Importa nosso módulo centralizado de banco de dados
 
-CAMINHO_BANCO = "banco/clipador.db"
-
-def get_nivel_usuario(telegram_id, nome=None):
+def get_nivel_usuario(telegram_id: int, nome: Optional[str] = None) -> Optional[int]:
     """
-    Obtém o nível do usuário. Se não existir, registra como um novo usuário comum (nível 1).
+    Obtém o nível do usuário. Se não existir e um nome for fornecido,
+    registra como um novo usuário e retorna o nível padrão.
     """
-    with sqlite3.connect(CAMINHO_BANCO) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT nivel FROM usuarios WHERE telegram_id = ?", (telegram_id,))
-        row = cursor.fetchone()
+    nivel = db.obter_nivel_usuario(telegram_id)
+    
+    # Se o nível for 1 (padrão) e não houver um usuário real, pode ser um novo usuário.
+    # Vamos verificar se o usuário existe de fato.
+    usuario_existente = db.buscar_usuario_por_id(telegram_id)
 
-        if row:
-            return row[0]
-        
-        if nome:
-            # Usuário não existe, vamos registrá-lo.
-            registrar_usuario(telegram_id, nome)
-            return 1  # Retorna o nível padrão para novos usuários (1).
-        
-        return None # Não pode registrar sem nome.
+    if usuario_existente:
+        return usuario_existente.get('nivel', 1)
+    
+    if nome:
+        # Usuário não existe, vamos registrá-lo usando a função centralizada.
+        registrar_usuario(telegram_id, nome)
+        return 1  # Retorna o nível padrão para novos usuários.
+    
+    return None # Não pode registrar sem nome e o usuário não foi encontrado.
 
-def registrar_usuario(telegram_id, nome):
+
+def registrar_usuario(telegram_id: int, nome: str):
     """
-    Registra um novo usuário no banco de dados com valores padrão.
-    Usa INSERT OR IGNORE para evitar erros se o usuário for criado simultaneamente.
+    Registra um novo usuário no banco de dados com valores padrão,
+    utilizando a função centralizada em core.database.
     """
-    with sqlite3.connect(CAMINHO_BANCO) as conn:
-        cursor = conn.cursor()
-        # A tabela 'usuarios' já tem valores DEFAULT para a maioria das colunas (como nivel=1).
-        # O INSERT só precisa do essencial.
-        cursor.execute(
-            "INSERT OR IGNORE INTO usuarios (telegram_id, nome) VALUES (?, ?)",
-            (telegram_id, nome)
-        )
-        conn.commit()
+    db.adicionar_usuario(user_id=telegram_id, nome=nome)
 
-# 🔄 UPDATE: Atualiza nome, nivel ou is_admin do usuário
-def atualizar_usuario(telegram_id, nome=None, nivel=None):
-    with sqlite3.connect(CAMINHO_BANCO) as conn:
-        cursor = conn.cursor()
-        if nome is not None:
-            cursor.execute("UPDATE usuarios SET nome = ? WHERE telegram_id = ?", (nome, telegram_id))
-        if nivel is not None:
-            cursor.execute("UPDATE usuarios SET nivel = ? WHERE telegram_id = ?", (nivel, telegram_id))
-        conn.commit()
 
-# ❌ DELETE: Remove o usuário do banco
-def remover_usuario(telegram_id):
-    with sqlite3.connect(CAMINHO_BANCO) as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM usuarios WHERE telegram_id = ?", (telegram_id,))
-        conn.commit()
+def atualizar_usuario(telegram_id: int, nome: Optional[str] = None, nivel: Optional[int] = None):
+    """
+    Atualiza o nome e/ou nível do usuário, utilizando a nova função de suporte
+    em core.database.
+    """
+    db.atualizar_dados_usuario(telegram_id=telegram_id, nome=nome, nivel=nivel)
 
-# 📋 READ ALL: Lista todos os usuários (opcional para debug)
-def listar_usuarios():
-    with sqlite3.connect(CAMINHO_BANCO) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT telegram_id, nome, nivel, email, tipo_plano, plano_assinado FROM usuarios")
-        return cursor.fetchall()
+
+def remover_usuario(telegram_id: int):
+    """
+    Remove um usuário e todos os seus dados associados do banco,
+    utilizando a função centralizada.
+    """
+    db.remover_usuario_por_id(telegram_id=telegram_id)
+
+
+def listar_usuarios() -> List[Dict[str, Any]]:
+    """
+    Lista todos os usuários do sistema para fins de administração,
+    utilizando a função centralizada.
+    """
+    return db.listar_todos_usuarios()
