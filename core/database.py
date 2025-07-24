@@ -1453,7 +1453,55 @@ def sale_id_ja_registrado(sale_id: str) -> bool:
         conn.close()
 
 # Alias para manter a compatibilidade com o código antigo que usa este nome
-compra_ja_registrada = sale_id_ja_registrado        
+compra_ja_registrada = sale_id_ja_registrado     
+
+def vincular_email_usuario(telegram_id: int, email: str) -> bool:
+    """Vincula um e-mail a um usuário, garantindo que o e-mail não esteja em uso por outro."""
+    conn = conectar()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM usuarios WHERE email = %s AND telegram_id != %s", (email, telegram_id))
+            if cursor.fetchone():
+                return False  # E-mail já está em uso
+
+            cursor.execute("UPDATE usuarios SET email = %s WHERE telegram_id = %s", (email, telegram_id))
+            conn.commit()
+            return True
+    finally:
+        conn.close()
+
+
+def verificar_configuracao_canal(telegram_id: int) -> bool:
+    """Verifica se o canal do usuário está configurado e com assinatura ativa."""
+    conn = conectar()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT plano_assinado, status_pagamento FROM usuarios WHERE telegram_id = %s", (telegram_id,))
+            resultado = cursor.fetchone()
+            if not resultado:
+                return False
+            plano, status = resultado
+            # A lógica original era 'aprovado', mas o status pode ser 'approved_admin', etc.
+            # O mais seguro é verificar se o plano não é nulo e o status não é 'pendente' ou 'expirado'.
+            return bool(plano and status not in ['pendente', 'expirado', 'trial_expired'])
+    finally:
+        conn.close()
+
+
+def buscar_compras_aprovadas_nao_vinculadas(email: str) -> list:
+    """Busca todas as compras aprovadas de um e-mail que ainda não foram vinculadas a um telegram_id."""
+    conn = conectar()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cursor:
+            cursor.execute("""
+                SELECT * FROM compras
+                WHERE LOWER(email) = LOWER(%s) AND status = 'aprovado' AND telegram_id IS NULL
+                ORDER BY criado_em DESC
+            """, (email.strip(),))
+            # Converte para uma lista de dicionários padrão para compatibilidade
+            return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
 
 # --- FUNÇÃO DE INICIALIZAÇÃO ---
 
