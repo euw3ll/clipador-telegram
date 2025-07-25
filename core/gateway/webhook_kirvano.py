@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import asyncio
 from datetime import datetime, timedelta
-import subprocess # Importa o módulo subprocess
+import subprocess
 
 # Adicionar o path do projeto para que os imports funcionem
 import sys
@@ -17,7 +17,7 @@ app = Flask(__name__)
 # Função para iniciar o ngrok (movida para fora do bloco main)
 def iniciar_ngrok():
     try:
-        # Inicia o ngrok em segundo plano.  Adapte o caminho conforme necessário.
+        # Inicia o ngrok em segundo plano. Adapte o caminho conforme necessário.
         process = subprocess.Popen(['ngrok', 'http', '5100'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # Imprime os logs do ngrok para fins de depuração (opcional)
         # for line in process.stdout:
@@ -45,8 +45,27 @@ def run_async(coro):
 
 @app.route('/webhook/kirvano', methods=['POST'])
 def kirvano_webhook():
-    # 1. Validar o token de segurança
+    # --- INÍCIO DA ETAPA 1: LOGS DE DEPURAÇÃO ---
+    print("\n--- NOVO EVENTO WEBHOOK RECEBIDO ---")
+    print(f"[{datetime.now()}]")
+    
+    # Log de todos os cabeçalhos recebidos
+    print("1. Cabeçalhos da Requisição (Headers):")
+    print(request.headers)
+
+    # Log do token específico que estamos tentando extrair
     token_recebido = request.headers.get('X-Kirvano-Token')
+    print(f"2. Token Extraído do Header 'X-Kirvano-Token': {token_recebido}")
+
+    # Log do token esperado (variável de ambiente), de forma segura
+    token_esperado_seguro = ""
+    if KIRVANO_TOKEN:
+        token_esperado_seguro = f"{KIRVANO_TOKEN[:4]}...{KIRVANO_TOKEN[-4:]}"
+    print(f"3. Token Esperado (do .env): {token_esperado_seguro}")
+    print("--- FIM DOS LOGS DE DEPURAÇÃO ---\n")
+    # --- FIM DA ETAPA 1 ---
+
+    # 1. Validar o token de segurança
     if not KIRVANO_TOKEN or token_recebido != KIRVANO_TOKEN:
         print(f"⚠️ Tentativa de acesso ao webhook com token inválido. Recebido: {token_recebido}")
         return jsonify({"status": "error", "message": "Token inválido"}), 403
@@ -91,7 +110,6 @@ def kirvano_webhook():
         # O telegram_id é None aqui, pois será vinculado pelo bot depois
         registrar_compra(None, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id, nome_completo, telefone)
         print(f"✅ Compra aprovada para {email} (Plano: {plano}) registrada no banco de dados via webhook.")
-
 
     else:
         print(f"INFO: Evento não tratado recebido: {event_type}")
