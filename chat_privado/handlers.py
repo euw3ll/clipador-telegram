@@ -15,6 +15,7 @@ from .menus.menu_pagamento import (
     responder_menu_5_mensal,
     responder_menu_5_plus,
     responder_menu_5_anual,
+    responder_menu_5_teste,  # <-- 1. Importação adicionada
 )
 from .menus.menu_configurar_canal import configurar_canal_conversa, responder_inicio
 from .menus.menu_gerenciamento import (
@@ -87,6 +88,7 @@ def registrar_handlers(app: Application):
     app.add_handler(CallbackQueryHandler(responder_menu_5_mensal, pattern="^menu_5_mensal$"))
     app.add_handler(CallbackQueryHandler(responder_menu_5_plus, pattern="^menu_5_plus$"))
     app.add_handler(CallbackQueryHandler(responder_menu_5_anual, pattern="^menu_5_anual$"))
+    app.add_handler(CallbackQueryHandler(responder_menu_5_teste, pattern="^menu_5_teste$"))
     app.add_handler(CallbackQueryHandler(roteador_pagamento, pattern="^pagar_"))
     app.add_handler(CallbackQueryHandler(abrir_menu_gerenciar_canal, pattern="^abrir_menu_gerenciar_canal$"))
     app.add_handler(CallbackQueryHandler(ver_plano_atual, pattern="^ver_plano_atual$"))
