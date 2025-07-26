@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import asyncio
 from datetime import datetime, timedelta
-import subprocess # Importa o módulo subprocess
+import subprocess
 
 # Adicionar o path do projeto para que os imports funcionem
 import sys
@@ -14,10 +14,19 @@ from core.ambiente import KIRVANO_TOKEN
 
 app = Flask(__name__)
 
+# --- INÍCIO DA ETAPA 1: Modificações para Render ---
+
+# 1. Adicionar uma rota raiz para as verificações de saúde (health checks) do Render
+@app.route('/', methods=['GET'])
+def health_check():
+    """Esta rota responde com 'OK' para que o Render saiba que o serviço está online."""
+    return "Clipador Webhook Service is running.", 200
+
+# --- FIM DA ETAPA 1 ---
+
 # Função para iniciar o ngrok (movida para fora do bloco main)
 def iniciar_ngrok():
     try:
-        # Inicia o ngrok em segundo plano. Adapte o caminho conforme necessário.
         process = subprocess.Popen(['ngrok', 'http', '5100'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print("ngrok iniciado em background.")
         return process
@@ -40,30 +49,11 @@ def run_async(coro):
 
 @app.route('/webhook/kirvano', methods=['POST'])
 def kirvano_webhook():
-    # --- INÍCIO DA ETAPA 1: LOGS DE DEPURAÇÃO MELHORADOS ---
-    print("\n--- NOVO EVENTO WEBHOOK RECEBIDO ---")
-    print(f"[{datetime.now()}]")
-    
-    # Log de todos os cabeçalhos recebidos para inspeção
-    print("1. Cabeçalhos da Requisição (Headers):")
-    print(request.headers)
-
-    token_recebido = request.headers.get('X-Kirvano-Token')
-    
     # 1. Validar o token de segurança
+    token_recebido = request.headers.get('X-Kirvano-Token')
     if not KIRVANO_TOKEN or token_recebido != KIRVANO_TOKEN:
-        # Log detalhado em caso de falha na validação
-        token_esperado_seguro = f"'{KIRVANO_TOKEN[:4]}...{KIRVANO_TOKEN[-4:]}'" if KIRVANO_TOKEN and len(KIRVANO_TOKEN) > 8 else "'Configurado, mas muito curto para mostrar'"
-        if not KIRVANO_TOKEN:
-            token_esperado_seguro = "'NÃO CONFIGURADO NO AMBIENTE'"
-
-        print("--- FALHA NA VALIDAÇÃO DO TOKEN ---")
-        print(f"-> Token Recebido: '{token_recebido}'")
-        print(f"-> Token Esperado: {token_esperado_seguro}")
-        print("------------------------------------")
-        
+        print(f"⚠️ Tentativa de acesso ao webhook com token inválido. Recebido: {token_recebido}")
         return jsonify({"status": "error", "message": "Token inválido"}), 403
-    # --- FIM DA ETAPA 1 ---
 
     data = request.json
     event_type = data.get('event_type')
@@ -73,7 +63,7 @@ def kirvano_webhook():
     if not email:
         return jsonify({"status": "error", "message": "E-mail não encontrado no payload"}), 400
 
-    print(f"🔔 Webhook VALIDADO com sucesso: Evento '{event_type}' para o e-mail '{email}'")
+    print(f"🔔 Webhook recebido: {event_type} para o e-mail {email}")
 
     # 2. Roteamento de Eventos
     if event_type in ['subscription.canceled', 'subscription.expired', 'purchase.refunded', 'purchase.chargeback', 'subscription.late']:
@@ -136,13 +126,12 @@ def handle_subscription_renewed(email, plano):
     if "Anual" in plano:
         nova_data = datetime.now() + timedelta(days=365)
     else: # Assume mensal
-        nova_data = datetime.now() + timedelta(days=31) # 31 para dar uma margem
+        nova_data = datetime.now() + timedelta(days=31)
     
     atualizar_data_expiracao(email, nova_data)
     print(f"Data de expiração para {email} atualizada para {nova_data.strftime('%Y-%m-%d')}")
 
 def iniciar_webhook():
-    # Verifica a variável de ambiente antes de iniciar o ngrok
     from configuracoes import ENABLE_NGROK
 
     if ENABLE_NGROK:
@@ -150,7 +139,12 @@ def iniciar_webhook():
     else:
         print("ngrok desativado pela variável de ambiente.")
         ngrok_process = None
-
-    app.run(host='0.0.0.0', port=5100, debug=True, use_reloader=False) 
+    
+    # --- INÍCIO DA ETAPA 1: Modificações para Render ---
+    # 2. Usar a porta fornecida pelo Render e ouvir em todas as interfaces
+    port = int(os.environ.get("PORT", 5100))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    # --- FIM DA ETAPA 1 ---
+    
     if ngrok_process:
         ngrok_process.terminate()

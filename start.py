@@ -1,26 +1,19 @@
 from configuracoes import TIPO_LOG, ENABLE_NGROK
 from core.bootstrap import validar_variaveis_ambiente
-from core.database import inicializar_banco # <-- 1. Importar a nova função
+from core.database import inicializar_banco
 import os
-import subprocess
 import time
-import requests
+from threading import Thread
+
+# Imports movidos para o topo para melhor organização
+from core.launcher import iniciar_clipador
+from core.gateway.webhook_kirvano import iniciar_webhook
+from canal_gratuito.core.telegram import atualizar_descricao_telegram_offline
 
 os.environ["PYTHONWARNINGS"] = "ignore"
 
 import warnings
 warnings.filterwarnings("ignore")
-
-from threading import Thread
-from core.launcher import iniciar_clipador
-from canal_gratuito.core.telegram import atualizar_descricao_telegram_offline
-
-def iniciar_webhook():
-    if ENABLE_NGROK:
-        print("🌐 Iniciando servidor do Webhook Kirvano com ngrok...")
-    else:
-        print("🌐 Iniciando servidor do Webhook Kirvano (ngrok desativado)...")
-    subprocess.Popen(["python3", "start_webhook.py"])
 
 try:
     # Valida as variáveis de ambiente primeiro
@@ -29,14 +22,24 @@ try:
 
     # Prepara o banco de dados ANTES de iniciar qualquer outra funcionalidade
     print("🔧 Preparando o banco de dados PostgreSQL...")
-    inicializar_banco() # <-- 2. Chamar a função de inicialização
+    inicializar_banco()
     print("✅ Banco de dados pronto.\n")
 
+    # --- INÍCIO DA ETAPA 2: Inversão da Lógica de Inicialização ---
+    
+    # 1. Inicia o bot do Clipador em uma thread separada (processo de fundo)
+    print("🚀 Iniciando o bot Clipador em segundo plano...")
+    bot_thread = Thread(target=iniciar_clipador, args=(False,))
+    bot_thread.daemon = True  # Permite que o programa principal finalize mesmo com a thread rodando
+    bot_thread.start()
+    
+    # 2. Inicia o servidor web no processo principal.
+    #    Isso mantém a aplicação "viva" para o Render e responde aos health checks.
+    print("🌐 Iniciando servidor web principal para o webhook...")
+    iniciar_webhook()
 
-    Thread(target=iniciar_webhook).start()
+    # --- FIM DA ETAPA 2 ---
 
-    print("🚀 Iniciando Clipador!")
-    iniciar_clipador(validar_variaveis=False)
 except KeyboardInterrupt:
     print("\n🛑 Clipador encerrado.")
     atualizar_descricao_telegram_offline()
