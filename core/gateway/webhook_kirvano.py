@@ -3,6 +3,13 @@ import os
 import asyncio
 from datetime import datetime, timedelta
 import subprocess
+import logging # <-- Adicionado
+
+# Garante que o logger capture eventos do Gunicorn e Flask
+gunicorn_logger = logging.getLogger('gunicorn.error')
+app_logger = logging.getLogger(__name__)
+app_logger.handlers = gunicorn_logger.handlers
+app_logger.setLevel(gunicorn_logger.level)
 
 # Adicionar o path do projeto para que os imports funcionem
 import sys
@@ -14,30 +21,11 @@ from core.ambiente import KIRVANO_TOKEN
 
 app = Flask(__name__)
 
-# --- INÍCIO DA ETAPA 1: Modificações para Render ---
-
-# 1. Adicionar uma rota raiz para as verificações de saúde (health checks) do Render
 @app.route('/', methods=['GET'])
 def health_check():
     """Esta rota responde com 'OK' para que o Render saiba que o serviço está online."""
     return "Clipador Webhook Service is running.", 200
 
-# --- FIM DA ETAPA 1 ---
-
-# Função para iniciar o ngrok (movida para fora do bloco main)
-def iniciar_ngrok():
-    try:
-        process = subprocess.Popen(['ngrok', 'http', '5100'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        print("ngrok iniciado em background.")
-        return process
-    except FileNotFoundError:
-        print("Erro: ngrok não encontrado. Verifique se está instalado e no PATH.")
-        return None
-    except Exception as e:
-        print(f"Erro ao iniciar ngrok: {e}")
-        return None
-
-# Função para rodar corrotinas a partir de um contexto síncrono (Flask)
 def run_async(coro):
     try:
         loop = asyncio.get_running_loop()
@@ -49,10 +37,23 @@ def run_async(coro):
 
 @app.route('/webhook/kirvano', methods=['POST'])
 def kirvano_webhook():
-    # 1. Validar o token de segurança
+    app_logger.info("--- NOVO EVENTO WEBHOOK RECEBIDO ---")
+    app_logger.info("1. Cabeçalhos da Requisição (Headers): %s", request.headers)
+    
     token_recebido = request.headers.get('X-Kirvano-Token')
+    app_logger.info("2. Token Extraído do Header 'X-Kirvano-Token': %s", token_recebido)
+
+    # 1. Validar o token de segurança
     if not KIRVANO_TOKEN or token_recebido != KIRVANO_TOKEN:
-        print(f"⚠️ Tentativa de acesso ao webhook com token inválido. Recebido: {token_recebido}")
+        token_esperado_seguro = f"'{KIRVANO_TOKEN[:4]}...{KIRVANO_TOKEN[-4:]}'" if KIRVANO_TOKEN and len(KIRVANO_TOKEN) > 8 else "'Configurado, mas muito curto'"
+        if not KIRVANO_TOKEN:
+            token_esperado_seguro = "'NÃO CONFIGURADO NO AMBIENTE'"
+
+        app_logger.warning("--- FALHA NA VALIDAÇÃO DO TOKEN ---")
+        app_logger.warning("-> Token Recebido: '%s'", token_recebido)
+        app_logger.warning("-> Token Esperado: %s", token_esperado_seguro)
+        app_logger.warning("------------------------------------")
+        
         return jsonify({"status": "error", "message": "Token inválido"}), 403
 
     data = request.json
@@ -61,9 +62,10 @@ def kirvano_webhook():
     status = data.get('status')
 
     if not email:
+        app_logger.warning("Webhook recebido sem e-mail no payload.")
         return jsonify({"status": "error", "message": "E-mail não encontrado no payload"}), 400
 
-    print(f"🔔 Webhook recebido: {event_type} para o e-mail {email}")
+    app_logger.info("Webhook VALIDADO com sucesso: Evento '%s' para o e-mail '%s'", event_type, email)
 
     # 2. Roteamento de Eventos
     if event_type in ['subscription.canceled', 'subscription.expired', 'purchase.refunded', 'purchase.chargeback', 'subscription.late']:
@@ -76,11 +78,11 @@ def kirvano_webhook():
     elif event_type == 'purchase.approved':
         sale_id = data.get('sale_id')
         if not sale_id:
-            print("⚠️ Webhook de compra aprovada sem 'sale_id'. Ignorando.")
+            app_logger.warning("Webhook de compra aprovada sem 'sale_id'. Ignorando.")
             return jsonify({"status": "error", "message": "sale_id não encontrado"}), 400
 
         if sale_id_ja_registrado(sale_id):
-            print(f"INFO: Compra com sale_id {sale_id} já registrada. Ignorando webhook duplicado.")
+            app_logger.info("Compra com sale_id %s já registrada. Ignorando webhook duplicado.", sale_id)
             return jsonify({"status": "success", "message": "duplicado"}), 200
 
         # Extraindo dados do payload
@@ -94,22 +96,21 @@ def kirvano_webhook():
 
         # O telegram_id é None aqui, pois será vinculado pelo bot depois
         registrar_compra(None, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id, nome_completo, telefone)
-        print(f"✅ Compra aprovada para {email} (Plano: {plano}) registrada no banco de dados via webhook.")
-
+        app_logger.info("✅ Compra aprovada para %s (Plano: %s) registrada no banco de dados via webhook.", email, plano)
 
     else:
-        print(f"INFO: Evento não tratado recebido: {event_type}")
+        app_logger.info("Evento não tratado recebido: %s", event_type)
 
     return jsonify({"status": "success"}), 200
 
 def handle_subscription_ended(email, status):
     """Lida com o fim de uma assinatura (cancelada, expirada, etc.)."""
-    print(f"Iniciando processo de desativação para {email} (Status: {status})")
+    app_logger.info("Iniciando processo de desativação para %s (Status: %s)", email, status)
     
     telegram_id = desativar_assinatura_por_email(email, novo_status=status)
 
     if not telegram_id:
-        print(f"Usuário com e-mail {email} não encontrado ou já inativo.")
+        app_logger.warning("Usuário com e-mail %s não encontrado ou já inativo.", email)
         return
 
     config = buscar_configuracao_canal(telegram_id)
@@ -117,11 +118,11 @@ def handle_subscription_ended(email, status):
         id_canal = int(config['id_canal_telegram'])
         run_async(remover_usuario_do_canal(id_canal, telegram_id))
     else:
-        print(f"Usuário {telegram_id} não possui canal configurado para remoção.")
+        app_logger.warning("Usuário %s não possui canal configurado para remoção.", telegram_id)
 
 def handle_subscription_renewed(email, plano):
     """Lida com a renovação de uma assinatura, estendendo a data de expiração."""
-    print(f"Iniciando processo de renovação para {email}")
+    app_logger.info("Iniciando processo de renovação para %s", email)
     
     if "Anual" in plano:
         nova_data = datetime.now() + timedelta(days=365)
@@ -129,22 +130,7 @@ def handle_subscription_renewed(email, plano):
         nova_data = datetime.now() + timedelta(days=31)
     
     atualizar_data_expiracao(email, nova_data)
-    print(f"Data de expiração para {email} atualizada para {nova_data.strftime('%Y-%m-%d')}")
+    app_logger.info("Data de expiração para %s atualizada para %s", email, nova_data.strftime('%Y-%m-%d'))
 
-def iniciar_webhook():
-    from configuracoes import ENABLE_NGROK
-
-    if ENABLE_NGROK:
-        ngrok_process = iniciar_ngrok()
-    else:
-        print("ngrok desativado pela variável de ambiente.")
-        ngrok_process = None
-    
-    # --- INÍCIO DA ETAPA 1: Modificações para Render ---
-    # 2. Usar a porta fornecida pelo Render e ouvir em todas as interfaces
-    port = int(os.environ.get("PORT", 5100))
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
-    # --- FIM DA ETAPA 1 ---
-    
-    if ngrok_process:
-        ngrok_process.terminate()
+# A função iniciar_webhook não é mais necessária, pois o Gunicorn gerencia o servidor.
+# Se precisar rodar localmente para testes, use o comando: flask --app core/gateway/webhook_kirvano:app run
