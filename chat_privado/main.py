@@ -75,4 +75,8 @@ def iniciar_chat_privado():
     registrar_handlers(app)
     
     logger.info("💬 Iniciando bot principal (chat privado e monitores)...")
-    app.run_polling()
+    
+    # --- INÍCIO DA ETAPA 1: Desativar os "Ouvintes" de Sinais ---
+    # Adicionamos stop_signals=None para evitar o erro de runtime em threads
+    app.run_polling(stop_signals=None)
+    # --- FIM DA ETAPA 1 ---
