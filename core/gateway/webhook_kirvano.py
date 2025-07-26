@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import asyncio
 from datetime import datetime, timedelta
-import subprocess
+import subprocess # Importa o módulo subprocess
 
 # Adicionar o path do projeto para que os imports funcionem
 import sys
@@ -19,11 +19,6 @@ def iniciar_ngrok():
     try:
         # Inicia o ngrok em segundo plano. Adapte o caminho conforme necessário.
         process = subprocess.Popen(['ngrok', 'http', '5100'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # Imprime os logs do ngrok para fins de depuração (opcional)
-        # for line in process.stdout:
-        #     print(line.decode('utf-8').strip())
-        # for line in process.stderr:
-        #     print(line.decode('utf-8').strip())
         print("ngrok iniciado em background.")
         return process
     except FileNotFoundError:
@@ -45,30 +40,30 @@ def run_async(coro):
 
 @app.route('/webhook/kirvano', methods=['POST'])
 def kirvano_webhook():
-    # --- INÍCIO DA ETAPA 1: LOGS DE DEPURAÇÃO ---
+    # --- INÍCIO DA ETAPA 1: LOGS DE DEPURAÇÃO MELHORADOS ---
     print("\n--- NOVO EVENTO WEBHOOK RECEBIDO ---")
     print(f"[{datetime.now()}]")
     
-    # Log de todos os cabeçalhos recebidos
+    # Log de todos os cabeçalhos recebidos para inspeção
     print("1. Cabeçalhos da Requisição (Headers):")
     print(request.headers)
 
-    # Log do token específico que estamos tentando extrair
     token_recebido = request.headers.get('X-Kirvano-Token')
-    print(f"2. Token Extraído do Header 'X-Kirvano-Token': {token_recebido}")
-
-    # Log do token esperado (variável de ambiente), de forma segura
-    token_esperado_seguro = ""
-    if KIRVANO_TOKEN:
-        token_esperado_seguro = f"{KIRVANO_TOKEN[:4]}...{KIRVANO_TOKEN[-4:]}"
-    print(f"3. Token Esperado (do .env): {token_esperado_seguro}")
-    print("--- FIM DOS LOGS DE DEPURAÇÃO ---\n")
-    # --- FIM DA ETAPA 1 ---
-
+    
     # 1. Validar o token de segurança
     if not KIRVANO_TOKEN or token_recebido != KIRVANO_TOKEN:
-        print(f"⚠️ Tentativa de acesso ao webhook com token inválido. Recebido: {token_recebido}")
+        # Log detalhado em caso de falha na validação
+        token_esperado_seguro = f"'{KIRVANO_TOKEN[:4]}...{KIRVANO_TOKEN[-4:]}'" if KIRVANO_TOKEN and len(KIRVANO_TOKEN) > 8 else "'Configurado, mas muito curto para mostrar'"
+        if not KIRVANO_TOKEN:
+            token_esperado_seguro = "'NÃO CONFIGURADO NO AMBIENTE'"
+
+        print("--- FALHA NA VALIDAÇÃO DO TOKEN ---")
+        print(f"-> Token Recebido: '{token_recebido}'")
+        print(f"-> Token Esperado: {token_esperado_seguro}")
+        print("------------------------------------")
+        
         return jsonify({"status": "error", "message": "Token inválido"}), 403
+    # --- FIM DA ETAPA 1 ---
 
     data = request.json
     event_type = data.get('event_type')
@@ -78,7 +73,7 @@ def kirvano_webhook():
     if not email:
         return jsonify({"status": "error", "message": "E-mail não encontrado no payload"}), 400
 
-    print(f"🔔 Webhook recebido: {event_type} para o e-mail {email}")
+    print(f"🔔 Webhook VALIDADO com sucesso: Evento '{event_type}' para o e-mail '{email}'")
 
     # 2. Roteamento de Eventos
     if event_type in ['subscription.canceled', 'subscription.expired', 'purchase.refunded', 'purchase.chargeback', 'subscription.late']:
@@ -110,6 +105,7 @@ def kirvano_webhook():
         # O telegram_id é None aqui, pois será vinculado pelo bot depois
         registrar_compra(None, email, plano, metodo_pagamento, status, sale_id, data_criacao, offer_id, nome_completo, telefone)
         print(f"✅ Compra aprovada para {email} (Plano: {plano}) registrada no banco de dados via webhook.")
+
 
     else:
         print(f"INFO: Evento não tratado recebido: {event_type}")
@@ -155,6 +151,6 @@ def iniciar_webhook():
         print("ngrok desativado pela variável de ambiente.")
         ngrok_process = None
 
-    app.run(host='0.0.0.0', port=5100, debug=True, use_reloader=False) # Adicionado debug e reloader para evitar multiplas instancias
+    app.run(host='0.0.0.0', port=5100, debug=True, use_reloader=False) 
     if ngrok_process:
         ngrok_process.terminate()
