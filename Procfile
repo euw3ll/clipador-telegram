@@ -1,1 +1,1 @@
-web: python start_webhook.py
+web: gunicorn wsgi:app
