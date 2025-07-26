@@ -2,6 +2,7 @@ import subprocess
 import sys
 import os
 import json
+import asyncio # ETAPA 1: Importar asyncio
 
 from chat_privado.main import iniciar_chat_privado
 from core.bootstrap import iniciar_ambiente
@@ -35,6 +36,13 @@ def limpar_estado():
         print("🧼 Memória anterior apagada.")
 
 def iniciar_clipador(validar_variaveis=True):
+    # --- INÍCIO DA ETAPA 1: Configurar o Event Loop para a Thread ---
+    # 1. Cria um novo event loop para esta thread.
+    loop = asyncio.new_event_loop()
+    # 2. Define o novo loop como o event loop atual para esta thread.
+    asyncio.set_event_loop(loop)
+    # --- FIM DA ETAPA 1 ---
+
     if validar_variaveis:
         iniciar_ambiente()
 
